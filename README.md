@@ -101,7 +101,7 @@ Slipstream is a working pit wall for a simulated race weekend (practice, knockou
 - It produces frames at 20 Hz and sends them in 100 ms batches. Each batch is acknowledged.
 - The simulator deliberately duplicates about 0.4% of frames and reorders another 0.4%, so the dedupe and reorder logic is always exercised.
 
-**Real recorded data** comes from OpenF1. `npm run openf1:import -w server -- --session <session_key> --minutes 15` imports any session from 2023 onwards; see [Real data](#what-you-get).
+**Real data** comes from OpenF1, streamed on demand and cached in MongoDB, live with a subscription key or historical without one. `npm run openf1:import -w server -- --session <session_key> --minutes 0` pre-downloads a whole session.
 
 **Real devices** can push the same frames over plain HTTP: `POST /api/ingest` with an `x-api-key` header. [`examples/http-source.mjs`](examples/http-source.mjs) is a 50-line source that does exactly that.
 
@@ -145,13 +145,22 @@ Every frame identifies its source, sequence number and timestamp:
 
 [The engineering reference →](docs/RACE_ENGINEERING.md)
 
-**Real data, replayed live.** A **Real Data** page replays a real Grand Prix (by default the first 15 minutes of the wet 2024 Brazilian GP) from [OpenF1](https://openf1.org), with real drivers, teams and colours. The importer stores per-driver car data (speed, RPM, gear, throttle, brake, DRS) merged with on-track coordinates, plus laps, positions, intervals, race-control messages, weather and pit stops, in MongoDB. A replay engine plays it back on one shared clock, like a broadcast, through a Socket.IO room:
+**Real sessions, live or replayed.** The **Real Data** page opens any Formula 1 session since 2023 (practice, qualifying, sprints, races) from [OpenF1](https://openf1.org), with real drivers, teams and colours.
 
-- positions interpolated at 5 Hz;
+There's one feed path with two feeds behind it:
+
+- **Historical feed:** any past session, no key needed. The server streams the whole session in 2-minute chunks just ahead of a real-time clock, so you live through it as if it were happening. You can pause, seek anywhere, or play at up to 16×.
+- **Live feed:** add an OpenF1 subscription key (`OPENF1_TOKEN`, or `OPENF1_USERNAME` and `OPENF1_PASSWORD`) and the same channel follows the session running right now, a few seconds behind real time.
+
+Every chunk is cached in MongoDB as it's fetched. A session is downloaded once, and a live session is **recorded as it happens** and can be replayed afterwards.
+
+Each session plays as a shared **channel** (Socket.IO room `replay:<session>`) on one clock, so everyone watching the same race sees the same moment, while other viewers can be on other races. The channel sends:
+
+- positions interpolated to 5 Hz;
 - live timing at 2 Hz;
-- flags and race-control messages as they happen.
+- race-control messages, laps, pit stops and weather as they happen.
 
-Every viewer sees the same moment. Race control can pause it, scrub through it or play it at up to 16×.
+Idle channels close themselves.
 
 **A demo director.** An optional scripted storyline plays out during the race through the normal race-control path, so a dashboard left open always has something happening: overheating, rain, a puncture, a safety car, brake fade, a VSC.
 
@@ -189,7 +198,7 @@ Every viewer sees the same moment. Race control can pause it, scrub through it o
     <td width="50%"><img src="docs/images/practice.png" alt="Practice: classification by best lap with cars in the garage and pit lane, and the run monitor tagging out and push laps"><br><sub>Practice: cars run programmes from the garage, and the run monitor tags each lap.</sub></td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/images/real-data.png" alt="Real data replay of the 2024 Brazilian Grand Prix: live timing with real drivers on intermediates, the Interlagos circuit drawn from car coordinates, George Russell's live telemetry and the race-control message feed"><br><sub>Real data: the wet 2024 Brazilian GP replayed from OpenF1, with live timing, every car on the circuit, live driver telemetry and race-control messages.</sub></td>
+    <td colspan="2"><img src="docs/images/real-data.png" alt="Real data replay of the 2024 Brazilian Grand Prix: live timing with real drivers on intermediates, the Interlagos circuit drawn from car coordinates, George Russell's live telemetry and the race-control message feed"><br><sub>Real data: the full wet 2024 Brazilian GP fed through the historical feed on a shared clock, with live timing, every car on the circuit, driver telemetry and race-control messages.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/images/race-control.png" alt="Race control: session start for practice, qualifying and race, track status, stream rate and burst, weather scheduling, incident injection, audit log"><br><sub>Race control: sessions, flags, weather, incidents and the stream rate.</sub></td>

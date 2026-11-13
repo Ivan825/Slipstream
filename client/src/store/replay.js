@@ -6,6 +6,7 @@ export const replayTrace = new Map(); // n -> [{t, v, thr, brk, g}] rolling ~60 
 export const replayClock = { t: 0, at: 0, speed: 1, playing: true };
 
 export function onReplayFrame(f) {
+  if (f.k != null && useReplay.getState().key != null && String(f.k) !== String(useReplay.getState().key)) return;
   const now = performance.now();
   replayClock.t = f.t; replayClock.at = now;
   for (const [n, x, y, v, g, thr, brk, drs, rpm] of f.cars) {
@@ -31,24 +32,39 @@ export function replayPos(n, now = performance.now()) {
 }
 
 export const useReplay = create((set, get) => ({
+  key: null,
   meta: null,
   state: { loaded: false },
   rows: [],
   rc: [],
   feed: [],
   selected: null,
+  open(key) {
+    replayCars.clear(); replayTrace.clear();
+    set({ key: String(key), meta: null, state: { loaded: false }, rows: [], rc: [], feed: [], selected: null });
+  },
   snapshot(s) {
     if (!s?.meta) return set({ state: s?.state || { loaded: false } });
+    if (get().key != null && String(s.meta.key) !== get().key && !(get().key === 'live' && s.meta.live)) return;
     replayCars.clear(); replayTrace.clear();
-    if (s.frame) onReplayFrame(s.frame);
-    set({ meta: s.meta, state: s.state, rows: s.rows || [], rc: (s.rc || []).slice().reverse(), feed: [], selected: get().selected || s.rows?.[0]?.n || null });
+    if (s.frame) onReplayFrame({ ...s.frame, k: s.meta.key });
+    const sel = get().selected;
+    set({ key: String(s.meta.key), meta: s.meta, state: s.state, rows: s.rows || [], rc: s.rc || [], feed: [], selected: sel && s.meta.drivers.some((d) => d.n === sel) ? sel : s.rows?.[0]?.n || null });
   },
+  mine(m) { return m?.k == null || String(m.k) === get().key; },
   setState(st) {
+    if (!get().mine(st)) return;
     if (get().state.t && st.t < get().state.t - 1000) { replayTrace.clear(); set({ feed: [] }); }
     set({ state: { ...get().state, ...st } });
   },
-  timing(m) { set({ rows: m.rows, state: { ...get().state, t: m.t, flag: m.flag, bestLap: m.bestLap, weather: m.weather ?? get().state.weather, playing: m.playing, speed: m.speed } }); },
-  events(evs) {
+  timing(m) {
+    if (!get().mine(m)) return;
+    const { rows, k, ...st } = m;
+    set({ rows, state: { ...get().state, ...st, weather: st.weather ?? get().state.weather } });
+  },
+  events(msg) {
+    if (!get().mine(msg)) return;
+    const evs = msg.events || [];
     const rc = evs.filter((e) => e.type === 'rc');
     const feed = evs.filter((e) => e.type === 'pit' || (e.type === 'lap' && e.fastest));
     const st = { ...get().state };

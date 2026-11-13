@@ -43,10 +43,10 @@ export function attachLive(io, hub, broadcaster) {
           // spectators and back-pressured clients get the 2 Hz feed
           const target = user.role === 'viewer' || socket.data.degraded ? ROOMS.RACE_2HZ : ROOMS.RACE;
           socket.join(target); joined.push(target);
-        } else if (room === 'replay') {
-          // real-session replay is public data
-          socket.join(room); joined.push(room);
-          replay = hub.replay?.snapshot() || null;
+        } else if (room.startsWith('replay:')) {
+          // real sessions are public data; the channel must have been opened first
+          const ch = hub.replays?.get(room.slice(7));
+          if (ch) { socket.join(room); joined.push(room); replay = ch.snapshot(); } else denied.push(room);
         } else if (room === ROOMS.TIMING || room === ROOMS.METRICS) {
           socket.join(room); joined.push(room);
           if (room === ROOMS.TIMING) timing = broadcaster.timingSnapshot();

@@ -203,7 +203,6 @@ export function connectLive(token) {
   socket.on('replay:timing', (m) => useReplay.getState().timing(m));
   socket.on('replay:events', (evs) => useReplay.getState().events(evs));
   socket.on('replay:state', (st) => useReplay.getState().setState(st));
-  socket.on('replay:reload', () => api('/replay/state').then((snap) => useReplay.getState().snapshot(snap)).catch(() => {}));
 
   // round-trip latency probe
   clearInterval(connectLive.ping);

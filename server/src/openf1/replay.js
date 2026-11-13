@@ -1,45 +1,55 @@
-import { ReplaySession, ReplayFrame, ReplayEvent } from '../models/index.js';
+import { SessionSource, CHUNK_MS } from './source.js';
 import { log } from '../lib/log.js';
 
 const COMPOUND = { SOFT: 'S', MEDIUM: 'M', HARD: 'H', INTERMEDIATE: 'I', WET: 'W' };
+const LIVE_DELAY_MS = 8000;
+const LIVE_REFRESH_MS = 3000;
 
 /**
- * Replays a real session imported from OpenF1 on one shared clock, like a live
- * broadcast: every viewer in the `replay` room sees the same moment.
- *   replay:frame   5 Hz   [n, x, y, km/h, gear, throttle, brake, drs, rpm] per car (interpolated)
- *   replay:timing  2 Hz   standings from position, interval, lap, stint and pit events
- *   replay:events  as they happen: race control messages, laps, pit stops, weather
+ * A channel plays one real session on one shared clock, like a broadcast:
+ * everyone in room `replay:<key>` sees the same moment.
+ *
+ * It is fed by one of two feeds that look identical to the rest of the system:
+ *   historical  any past session, released on a real-time clock (pause, seek, 1–16×)
+ *   live        the current session from OpenF1's real-time API (needs a key),
+ *               followed a few seconds behind real time and recorded to MongoDB
+ *               as it arrives, so it is replayable afterwards
+ *
+ * Output:
+ *   replay:frame   5 Hz   [n, x, y, km/h, gear, throttle, brake, drs, rpm] per car
+ *   replay:timing  2 Hz   standings + clock state
+ *   replay:events  as they happen: race control, laps, pit stops, weather
  */
-export class ReplayEngine {
-  constructor({ emit, hasViewers }) {
-    this.emit = emit;
-    this.hasViewers = hasViewers;
-    this.meta = null;
+export class ReplayChannel {
+  constructor({ key, live = false, emit, viewers }) {
+    this.key = key;
+    this.live = live;
+    this.emitRaw = emit;
+    this.viewers = viewers;
+    this.source = new SessionSource(key, { live });
     this.playing = true;
     this.speed = 1;
-    this.loop = true;
+    this.loop = !live;
+    this.buffering = true;
+    this.loaded = new Map(); // chunk index -> { frames, intervals, at }
+    this.cars = new Map();
+    this.intervals = [];
     this.timers = [];
+    this.lastViewerAt = Date.now();
   }
 
-  async load(key) {
-    const meta = key ? await ReplaySession.findOne({ key: Number(key) }).lean() : await ReplaySession.findOne().sort({ importedAt: -1 }).lean();
-    if (!meta) return null;
-    const frames = await ReplayFrame.find({ s: meta.key }, { _id: 0, s: 0 }).sort({ t: 1 }).lean();
-    const events = await ReplayEvent.find({ s: meta.key }, { _id: 0, s: 0 }).sort({ t: 1 }).lean();
-    const byCar = new Map();
-    for (const f of frames) {
-      let c = byCar.get(f.n);
-      if (!c) { c = []; byCar.set(f.n, c); }
-      c.push({ t: +f.t, x: f.x, y: f.y, v: f.v, g: f.g, thr: f.thr, brk: f.brk, drs: f.drs, rpm: f.rpm });
-    }
-    this.meta = meta;
-    this.cars = byCar;
-    this.events = events.map((e) => ({ ...e, t: +e.t }));
-    this.from = +meta.from;
-    this.to = +meta.to;
-    this.seek(this.from);
-    log.info(`replay: loaded ${meta.name} (${frames.length} frames, ${events.length} events)`);
-    return meta;
+  room() { return `replay:${this.meta?.key ?? this.key}`; }
+  emit(ev, payload) { this.emitRaw(this.room(), ev, { k: this.meta?.key ?? this.key, ...payload }); }
+
+  async init() {
+    this.meta = await this.source.loadMeta();
+    this.key = this.meta.key;
+    this.events = this.source.events;
+    this.from = +this.meta.from;
+    this.to = this.live ? Date.now() : +this.meta.to;
+    this.seek(this.live ? Date.now() - LIVE_DELAY_MS : this.from);
+    this.start();
+    return this;
   }
 
   start() {
@@ -48,18 +58,82 @@ export class ReplayEngine {
       const now = Date.now();
       const dt = now - last;
       last = now;
-      if (!this.meta) return;
-      if (this.playing) this.advance(dt * this.speed);
-      if (this.hasViewers()) this.emit('replay:frame', this.frame());
+      const watching = this.viewers(this.room());
+      if (watching > 0) this.lastViewerAt = now;
+      if (this.live) {
+        this.to = now;
+        this.advanceTo(now - LIVE_DELAY_MS);
+      } else if (this.playing && !this.buffering) {
+        this.advanceTo(this.t + dt * this.speed);
+      }
+      this.ensure();
+      if (watching) this.emit('replay:frame', this.frame());
     }, 200));
     this.timers.push(setInterval(() => {
-      if (this.meta && this.hasViewers()) this.emit('replay:timing', { t: this.t, rows: this.standings(), flag: this.st.flag, bestLap: this.st.bestLap, weather: this.st.weather, playing: this.playing, speed: this.speed });
+      if (this.viewers(this.room())) this.emit('replay:timing', { ...this.state(), rows: this.standings() });
     }, 500));
+    if (this.live) this.timers.push(setInterval(() => this.pollLiveEvents(), 4000));
   }
 
   stop() { this.timers.forEach(clearInterval); }
 
-  /* ---------------- clock ---------------- */
+  /* ---------------- feed: chunks of car data ---------------- */
+
+  ensure() {
+    const cur = this.source.chunkIndex(this.t);
+    const want = this.live ? [cur - 1, cur] : [cur, cur + 1, cur + 2];
+    const now = Date.now();
+    for (const i of want) {
+      if (i < 0 || (!this.live && i >= this.source.chunkCount())) continue;
+      const have = this.loaded.get(i);
+      // historical chunks are fetched once; the live chunk keeps growing, so refresh it
+      if (have && !(this.live && i >= cur - 1 && now - have.at > LIVE_REFRESH_MS)) continue;
+      if (this.source.inflight.has(i)) continue;
+      this.source.chunk(i).then((c) => {
+        this.loaded.set(i, { ...c, at: Date.now() });
+        const nowCur = this.source.chunkIndex(this.t);
+        for (const k of this.loaded.keys()) if (k < nowCur - 1 || k > nowCur + 3) this.loaded.delete(k);
+        this.rebuild();
+      }).catch((e) => log.warn(`replay ${this.key} chunk ${i}:`, e.message));
+    }
+    const ready = this.loaded.has(cur);
+    if (this.buffering !== !ready) {
+      this.buffering = !ready;
+      this.emit('replay:state', this.state());
+    }
+  }
+
+  rebuild() {
+    const cars = new Map();
+    const intervals = [];
+    for (const i of [...this.loaded.keys()].sort((a, b) => a - b)) {
+      const c = this.loaded.get(i);
+      for (const f of c.frames) {
+        let arr = cars.get(f.n);
+        if (!arr) { arr = []; cars.set(f.n, arr); }
+        arr.push(f);
+      }
+      intervals.push(...c.intervals);
+    }
+    this.cars = cars;
+    this.intervals = intervals;
+    for (const e of intervals) if (e.t <= this.t) this.apply(e);
+  }
+
+  async pollLiveEvents() {
+    try {
+      const fresh = await this.source.liveEvents(this.liveSince || Date.now() - 180_000);
+      if (!fresh.length) return;
+      this.liveSince = fresh[fresh.length - 1].t;
+      const known = new Set(this.events.map((e) => `${e.type}:${e.t}:${e.data.n ?? ''}`));
+      for (const e of fresh) if (!known.has(`${e.type}:${e.t}:${e.data.n ?? ''}`)) this.events.push(e);
+      this.events.sort((a, b) => a.t - b.t);
+      this.ei = this.events.findIndex((e) => e.t > this.t);
+      if (this.ei < 0) this.ei = this.events.length;
+    } catch (e) { log.warn('live poll', e.message); }
+  }
+
+  /* ---------------- clock & state ---------------- */
 
   resetState() {
     this.st = { pos: new Map(), gap: new Map(), int: new Map(), lap: new Map(), last: new Map(), best: new Map(), pits: new Map(), sectors: new Map(), weather: null, rc: [], flag: 'GREEN', bestLap: null };
@@ -71,7 +145,7 @@ export class ReplayEngine {
     switch (e.type) {
       case 'position': s.pos.set(d.n, d.pos); break;
       case 'interval': s.gap.set(d.n, d.gap); s.int.set(d.n, d.int); break;
-      case 'lapstart': s.lap.set(d.n, d.lap); break;
+      case 'lapstart': s.lap.set(d.n, Math.max(s.lap.get(d.n) || 0, d.lap)); break;
       case 'lap':
         s.last.set(d.n, d.time);
         s.sectors.set(d.n, d.s);
@@ -83,8 +157,8 @@ export class ReplayEngine {
       case 'rc':
         s.rc.push({ t: e.t, ...d });
         if (s.rc.length > 40) s.rc.shift();
-        if (d.flag && (d.scope === 'Track' || d.category === 'SafetyCar' || !d.scope)) s.flag = d.flag === 'CLEAR' ? 'GREEN' : d.flag;
-        if (d.category === 'SafetyCar') s.flag = /DEPLOYED/i.test(d.message) ? (/VIRTUAL/i.test(d.message) ? 'VSC' : 'SC') : /ENDING|IN THIS LAP/i.test(d.message) ? s.flag : 'GREEN';
+        if (d.category === 'SafetyCar') s.flag = /VIRTUAL/i.test(d.message) && /DEPLOYED/i.test(d.message) ? 'VSC' : /DEPLOYED/i.test(d.message) ? 'SC' : /ENDING|IN THIS LAP/i.test(d.message) ? s.flag : 'GREEN';
+        else if (d.flag && (d.scope === 'Track' || !d.scope)) s.flag = d.flag === 'CLEAR' ? 'GREEN' : d.flag;
         collect?.push(e);
         break;
       default: break;
@@ -95,31 +169,32 @@ export class ReplayEngine {
     this.t = Math.max(this.from, Math.min(this.to, t));
     this.resetState();
     while (this.ei < this.events.length && this.events[this.ei].t <= this.t) this.apply(this.events[this.ei++]);
+    for (const e of this.intervals) if (e.t <= this.t) this.apply(e);
+    this.ensure();
   }
 
-  advance(ms) {
-    let next = this.t + ms;
-    if (next > this.to) {
+  advanceTo(next) {
+    if (!this.live && next > this.to) {
       if (!this.loop) { this.t = this.to; this.playing = false; return; }
       this.seek(this.from);
       this.emit('replay:state', this.state());
       return;
     }
+    const prev = this.t;
     this.t = next;
     const fresh = [];
     while (this.ei < this.events.length && this.events[this.ei].t <= this.t) this.apply(this.events[this.ei++], fresh);
-    if (fresh.length && this.hasViewers()) this.emit('replay:events', fresh.map((e) => ({ t: e.t, type: e.type, fastest: e.fastest, ...e.data })));
+    for (const e of this.intervals) if (e.t > prev && e.t <= this.t) this.apply(e);
+    if (fresh.length && this.viewers(this.room())) this.emit('replay:events', { events: fresh.map((e) => ({ t: e.t, type: e.type, fastest: e.fastest, ...e.data })) });
   }
 
-  /* ---------------- output ---------------- */
-
   carAt(arr, t) {
+    if (!arr?.length || t < arr[0].t - 2000) return null;
     let lo = 0, hi = arr.length - 1;
-    if (!arr.length || t < arr[0].t) return null;
-    if (t >= arr[hi].t) return arr[hi];
+    if (t >= arr[hi].t) return t - arr[hi].t < 5000 ? arr[hi] : null;
     while (hi - lo > 1) { const m = (lo + hi) >> 1; if (arr[m].t <= t) lo = m; else hi = m; }
     const a = arr[lo], b = arr[hi];
-    const f = (t - a.t) / ((b.t - a.t) || 1);
+    const f = Math.max(0, Math.min(1, (t - a.t) / ((b.t - a.t) || 1)));
     return { ...a, x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, v: a.v + (b.v - a.v) * f };
   }
 
@@ -139,28 +214,27 @@ export class ReplayEngine {
 
   standings() {
     const s = this.st;
-    return this.meta.drivers
-      .map((d) => {
-        const lap = s.lap.get(d.n) || 0;
-        const tyre = this.compoundOf(d.n, Math.max(1, lap));
-        return { n: d.n, pos: s.pos.get(d.n) ?? 99, gap: s.gap.get(d.n) ?? null, int: s.int.get(d.n) ?? null, lap, last: s.last.get(d.n) ?? null, best: s.best.get(d.n) ?? null, sectors: s.sectors.get(d.n) || null, pits: s.pits.get(d.n) || 0, tc: tyre?.c || null, ta: tyre?.age ?? null };
-      })
-      .sort((a, b) => a.pos - b.pos);
+    return this.meta.drivers.map((d) => {
+      const lap = s.lap.get(d.n) || 0;
+      const tyre = this.compoundOf(d.n, Math.max(1, lap));
+      return { n: d.n, pos: s.pos.get(d.n) ?? 99, gap: s.gap.get(d.n) ?? null, int: s.int.get(d.n) ?? null, lap, last: s.last.get(d.n) ?? null, best: s.best.get(d.n) ?? null, sectors: s.sectors.get(d.n) || null, pits: s.pits.get(d.n) || 0, tc: tyre?.c || null, ta: tyre?.age ?? null };
+    }).sort((a, b) => a.pos - b.pos || (a.best ?? 1e9) - (b.best ?? 1e9));
   }
 
   state() {
-    if (!this.meta) return { loaded: false };
-    return { loaded: true, key: this.meta.key, t: this.t, from: this.from, to: this.to, playing: this.playing, speed: this.speed, flag: this.st.flag, weather: this.st.weather, bestLap: this.st.bestLap };
+    return {
+      loaded: true, key: this.meta.key, live: this.live, feed: this.live ? 'live' : 'historical', t: this.t, from: this.from, to: this.to,
+      playing: this.playing, speed: this.speed, buffering: this.buffering, flag: this.st.flag, weather: this.st.weather, bestLap: this.st.bestLap
+    };
   }
 
   snapshot() {
-    if (!this.meta) return { state: { loaded: false } };
-    const { drivers, track, name, circuit, country, year, type, frames, events, key } = this.meta;
-    return { meta: { key, name, circuit, country, year, type, drivers, track, frames, events }, state: this.state(), rows: this.standings(), rc: this.st.rc.slice(-20), frame: this.frame() };
+    const { drivers, track, name, circuit, country, year, type, key, complete } = this.meta;
+    return { meta: { key, name, circuit, country, year, type, drivers, track, complete, live: this.live }, state: this.state(), rows: this.standings(), rc: this.st.rc.slice(-20).reverse(), frame: this.frame() };
   }
 
   control({ action, t, speed }) {
-    if (!this.meta) throw new Error('no replay loaded');
+    if (this.live && action !== 'play') throw new Error('a live channel follows real time');
     if (action === 'play') this.playing = true;
     if (action === 'pause') this.playing = false;
     if (action === 'seek') this.seek(this.from + Math.max(0, Number(t) || 0));
@@ -169,4 +243,62 @@ export class ReplayEngine {
     this.emit('replay:state', this.state());
     return this.state();
   }
+}
+
+/**
+ * Opens channels on demand (anyone can pick a session), shares one channel
+ * between everyone watching the same session, and closes channels nobody has
+ * watched for a few minutes.
+ */
+export class ReplayManager {
+  constructor({ emit, viewers, maxChannels = 6, idleMs = 180_000 }) {
+    this.emit = emit;
+    this.viewers = viewers;
+    this.maxChannels = maxChannels;
+    this.idleMs = idleMs;
+    this.channels = new Map();
+    this.opening = new Map();
+    this.timer = setInterval(() => this.reap(), 30_000);
+  }
+
+  get(key) { return this.channels.get(String(key)); }
+
+  async open(key, { live = false } = {}) {
+    const id = live ? 'live' : String(key);
+    if (this.channels.has(id)) return this.channels.get(id);
+    if (this.opening.has(id)) return this.opening.get(id);
+    if (this.distinct().length >= this.maxChannels) {
+      this.reap(true);
+      if (this.distinct().length >= this.maxChannels) throw new Error('all replay channels are busy, try again in a few minutes');
+    }
+    const ch = new ReplayChannel({ key: live ? 'latest' : Number(key), live, emit: this.emit, viewers: this.viewers });
+    const p = ch.init().then(() => {
+      this.channels.set(id, ch);
+      this.channels.set(String(ch.meta.key), ch);
+      log.info(`replay channel open: ${ch.meta.name} (${live ? 'live feed' : 'historical feed'})`);
+      return ch;
+    }).finally(() => this.opening.delete(id));
+    this.opening.set(id, p);
+    return p;
+  }
+
+  distinct() { return [...new Set(this.channels.values())]; }
+
+  reap(force = false) {
+    const now = Date.now();
+    for (const ch of this.distinct()) {
+      const idle = now - ch.lastViewerAt;
+      if (idle > this.idleMs || (force && idle > 20_000)) {
+        ch.stop();
+        for (const [k, v] of this.channels) if (v === ch) this.channels.delete(k);
+        log.info(`replay channel closed: ${ch.meta?.name}`);
+      }
+    }
+  }
+
+  list() {
+    return this.distinct().map((ch) => ({ key: ch.meta.key, name: ch.meta.name, live: ch.live, viewers: this.viewers(ch.room()), t: ch.t, from: ch.from, to: ch.to, playing: ch.playing, speed: ch.speed }));
+  }
+
+  stop() { clearInterval(this.timer); for (const ch of this.distinct()) ch.stop(); }
 }

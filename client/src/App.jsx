@@ -52,6 +52,7 @@ function Shell({ role, location }) {
           <Route path="/control" element={role === 'race_control' ? <Page><RaceControl /></Page> : <Navigate to="/" />} />
           <Route path="/systems" element={<Page><Systems /></Page>} />
           <Route path="/real" element={<Page><Replay /></Page>} />
+          <Route path="/real/:key" element={<Page><Replay /></Page>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AnimatePresence>

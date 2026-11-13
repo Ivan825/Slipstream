@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ReplayEngine } from '../src/openf1/replay.js';
+import { ReplayChannel } from '../src/openf1/replay.js';
 
 function engine() {
   const sent = [];
-  const e = new ReplayEngine({ emit: (ev, p) => sent.push([ev, p]), hasViewers: () => true });
+  const e = new ReplayChannel({ key: 1, emit: (room, ev, p) => sent.push([ev, p]), viewers: () => 1 });
+  e.ensure = () => {}; // no network in tests: frames are injected below
   const t0 = 1_000_000;
   e.meta = {
     key: 1, name: 'Test', drivers: [{ n: 1, code: 'AAA', color: '#f00' }, { n: 2, code: 'BBB', color: '#00f' }],
@@ -24,6 +25,7 @@ function engine() {
     { t: t0 + 600, type: 'rc', data: { category: 'Flag', flag: 'RED', message: 'RED FLAG', scope: 'Track' } },
     { t: t0 + 700, type: 'lap', data: { n: 1, lap: 1, time: 90.5, s: [30, 30, 30.5] } }
   ];
+  e.intervals = [];
   e.from = t0; e.to = t0 + 1000;
   e.seek(t0);
   return { e, sent, t0 };
@@ -46,13 +48,13 @@ test('replay seek applies only past events and builds standings', () => {
 
 test('replay frames interpolate between samples and events stream as they happen', () => {
   const { e, sent, t0 } = engine();
-  e.advance(500);
+  e.advanceTo(e.t + 500);
   const f = e.frame();
   const car1 = f.cars.find((c) => c[0] === 1);
   assert.equal(car1[1], 50, 'x interpolated halfway');
   assert.equal(car1[3], 150, 'speed interpolated');
-  e.advance(300);
-  const evs = sent.filter(([ev]) => ev === 'replay:events').flatMap(([, p]) => p);
+  e.advanceTo(e.t + 300);
+  const evs = sent.filter(([ev]) => ev === 'replay:events').flatMap(([, p]) => p.events);
   assert.ok(evs.some((x) => x.type === 'rc' && x.flag === 'RED'));
   assert.ok(evs.some((x) => x.type === 'lap' && x.fastest));
   void t0;

@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRooms } from '../lib/live.js';
 import { api } from '../lib/api.js';
 import { useCanvas, useAnimationFrame, useTicker } from '../lib/hooks.js';
@@ -13,28 +14,138 @@ const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${
 const gapText = (g) => (g == null ? '' : typeof g === 'number' ? '+' + g.toFixed(3) : String(g));
 const FLAG = { GREEN: ['TRACK CLEAR', 'GREEN'], YELLOW: ['YELLOW FLAG', 'YELLOW'], 'DOUBLE YELLOW': ['DOUBLE YELLOW', 'YELLOW'], RED: ['RED FLAG', 'RED'], SC: ['SAFETY CAR', 'SC'], VSC: ['VIRTUAL SAFETY CAR', 'VSC'], CHEQUERED: ['CHEQUERED FLAG', 'CHQ'], BLUE: ['TRACK CLEAR', 'GREEN'] };
 
-export default function Replay() {
-  useRooms(['replay']);
+export default function RealData() {
+  const { key } = useParams();
+  return key ? <Channel channelKey={key} key={key} /> : <Browser />;
+}
+
+/* ---------------- session browser ---------------- */
+function Browser() {
+  const nav = useNavigate();
+  const thisYear = new Date().getFullYear();
+  const [year, setYear] = useState(thisYear);
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState(null);
+  const [channels, setChannels] = useState({ channels: [], cached: [], live: false });
+  useEffect(() => {
+    let alive = true;
+    setList(null); setErr(null);
+    api(`/replay/catalog?year=${year}`).then((d) => alive && setList(d.sessions)).catch((e) => alive && setErr(e.message));
+    return () => { alive = false; };
+  }, [year]);
+  useEffect(() => {
+    const load = () => api('/replay/channels').then(setChannels).catch(() => {});
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, []);
+  const meetings = useMemo(() => {
+    const m = new Map();
+    for (const s of list || []) {
+      const g = m.get(s.meeting) || { meeting: s.meeting, country: s.country, circuit: s.circuit, start: s.start, sessions: [] };
+      g.sessions.push(s);
+      m.set(s.meeting, g);
+    }
+    return [...m.values()].sort((a, b) => b.start.localeCompare(a.start));
+  }, [list]);
+  const now = Date.now();
+  return (
+    <div className="stack">
+      <div className="page-title">
+        <div><h1>Real data</h1><p>Every Formula 1 session since 2023, from OpenF1. Pick one and live through it as if it were happening now: the server streams the session through the same real-time path a live feed uses, on a shared clock for everyone watching.</p></div>
+        <div className="seg">{Array.from({ length: thisYear - 2022 }, (_, i) => 2023 + i).reverse().map((y) => <button key={y} className={y === year ? 'on' : ''} onClick={() => setYear(y)}>{y}</button>)}</div>
+      </div>
+      <div className="three">
+        <div className={`card ${channels.live ? 'hl' : ''}`}>
+          <div className="card-h"><b>Live feed</b><span className={`live-pill ${channels.live ? '' : 'off'}`} style={{ fontSize: 10, padding: '2px 8px' }}><i />{channels.live ? 'AVAILABLE' : 'NEEDS KEY'}</span></div>
+          <div className="card-b stack" style={{ gap: 8 }}>
+            <p className="mu" style={{ margin: 0, fontSize: 13 }}>Follows the session that is running right now, a few seconds behind real time, and records it to MongoDB so it can be replayed afterwards.</p>
+            {channels.live
+              ? <button className="btn red" onClick={() => nav('/real/live')}>Watch live</button>
+              : <p className="mu" style={{ margin: 0, fontSize: 12 }}>OpenF1 real-time data needs a subscription. Set <span className="mono">OPENF1_TOKEN</span> (or <span className="mono">OPENF1_USERNAME</span> / <span className="mono">OPENF1_PASSWORD</span>) on the server to enable it. Past sessions are free.</p>}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-h"><b>Watching now</b><span className="chip">{channels.channels.length} channels</span></div>
+          <div className="card-b stack" style={{ gap: 6 }}>
+            {!channels.channels.length && <span className="mu" style={{ fontSize: 13 }}>Nobody is watching a session. Pick one below.</span>}
+            {channels.channels.map((c) => (
+              <button key={c.key} className="row" style={{ background: 'var(--bg-2)', border: 0, padding: '8px 10px', textAlign: 'left' }} onClick={() => nav(`/real/${c.live ? 'live' : c.key}`)}>
+                <b style={{ flex: 1 }}>{c.name}</b><span className="chip">{c.viewers} watching</span><span className="chip">{c.live ? 'LIVE' : `${clock(c.t - c.from)} · ${c.speed}×`}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-h"><b>Stored in MongoDB</b><span className="chip">downloaded once</span></div>
+          <div className="card-b stack" style={{ gap: 6 }}>
+            {!channels.cached.length && <span className="mu" style={{ fontSize: 13 }}>Sessions are cached chunk by chunk as they are watched.</span>}
+            {channels.cached.slice(0, 6).map((c) => (
+              <button key={c.key} className="row" style={{ background: 'var(--bg-2)', border: 0, padding: '8px 10px', textAlign: 'left' }} onClick={() => nav(`/real/${c.key}`)}>
+                <b style={{ flex: 1 }}>{c.name}</b><span className="chip">{c.recorded} / {c.minutes} min stored</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {err && <div className="card"><div className="empty"><b>Could not reach OpenF1</b>{err}</div></div>}
+      {!list && !err && <div className="shimmer" style={{ height: 240 }} />}
+      {list && (
+        <div className="three">
+          {meetings.map((m) => {
+            const future = Date.parse(m.start) > now;
+            return (
+              <div key={m.meeting} className="card" style={{ opacity: future ? 0.5 : 1 }}>
+                <div className="card-h"><b>{m.country}</b><span className="chip">{new Date(m.start).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span></div>
+                <div className="card-b">
+                  <div className="mu" style={{ fontSize: 12, marginBottom: 8 }}>{m.circuit}</div>
+                  <div className="row" style={{ gap: 6 }}>
+                    {m.sessions.map((s) => {
+                      const ended = Date.parse(s.end) < now;
+                      return <button key={s.key} className={`btn sm ${/^Race$/.test(s.name) ? 'red' : ''}`} disabled={!ended} title={ended ? `Watch ${s.name}` : 'Not run yet'} onClick={() => nav(`/real/${s.key}`)}>{s.name}</button>;
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="mu" style={{ fontSize: 12, margin: 0 }}>Data: <a href="https://openf1.org" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>OpenF1</a>, an unofficial open API, used for non-commercial demonstration. Not associated with Formula 1 companies.</p>
+    </div>
+  );
+}
+
+/* ---------------- one session, on a shared clock ---------------- */
+function Channel({ channelKey }) {
+  const [opened, setOpened] = useState(false);
+  const [openErr, setOpenErr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    useReplay.getState().open(channelKey);
+    api('/replay/open', { method: 'POST', body: { key: channelKey === 'live' ? 'live' : Number(channelKey) } })
+      .then((snap) => { if (!alive) return; useReplay.getState().snapshot({ ...snap }); setOpened(String(snap.meta.key)); })
+      .catch((e) => alive && setOpenErr(e.message));
+    return () => { alive = false; };
+  }, [channelKey]);
+  useRooms(opened ? [`replay:${opened}`] : []);
   useTicker(4);
   const { meta, state, rows, rc, feed, selected, select } = useReplay();
   const role = useAuth((s) => s.user?.role);
   const toast = useToasts((s) => s.push);
   const drivers = useMemo(() => new Map((meta?.drivers || []).map((d) => [d.n, d])), [meta]);
 
-  if (!state.loaded || !meta) {
-    return (
-      <div className="card"><div className="empty">
-        <b>No real session loaded</b>
-        Import one with <span className="mono">npm run openf1:import -w server -- --session 9636</span>, or set <span className="mono">REPLAY_AUTO_IMPORT=true</span>.
-      </div></div>
-    );
+  if (openErr) return <div className="card"><div className="empty"><b>Could not open this session</b>{openErr}<Link to="/real" className="btn sm" style={{ marginTop: 8 }}>Back to sessions</Link></div></div>;
+  if (!opened || !meta || !state.loaded) {
+    return <div className="card"><div className="empty"><b>Opening the session</b>Fetching drivers, laps, positions, race control and the circuit from OpenF1. The first open takes a few seconds; after that it is cached in MongoDB.<div className="shimmer" style={{ height: 8, width: 240, marginTop: 10 }} /></div></div>;
   }
 
   const elapsed = state.t - state.from, total = state.to - state.from;
   const leaderLap = rows[0]?.lap || 0;
   const [flagText, flagCls] = FLAG[state.flag] || [state.flag || 'TRACK CLEAR', 'GREEN'];
+  const canControl = role && role !== 'viewer' && !state.live;
   const ctl = async (body) => {
-    try { await api('/replay/control', { method: 'POST', body }); } catch (e) { toast({ kind: 'red', title: 'Replay', text: e.message }); }
+    try { await api(`/replay/${meta.key}/control`, { method: 'POST', body }); } catch (e) { toast({ kind: 'red', title: 'Replay', text: e.message }); }
   };
   const sel = drivers.get(selected) || drivers.get(rows[0]?.n);
   const w = state.weather;
@@ -43,28 +154,30 @@ export default function Replay() {
     <div className="stack">
       <div className="card carbon" style={{ borderTopRightRadius: 14 }}>
         <div className="row" style={{ padding: '12px 16px', gap: 18 }}>
-          <span className="tag" style={{ background: '#fff', color: 'var(--bg)' }}>Real data · OpenF1</span>
-          <div><div className="lbl">{meta.circuit} · {meta.type}</div><b style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' }}>{meta.year} {meta.country} Grand Prix</b></div>
-          <div className="kv"><small>Replay clock</small><b className="mono">{clock(elapsed)} <span className="mu" style={{ fontSize: 13 }}>/ {clock(total)}</span></b></div>
-          <div className="kv"><small>Leader lap</small><b>{leaderLap}</b></div>
+          <Link to="/real" className="chip">← Sessions</Link>
+          <span className="tag" style={{ background: state.live ? 'var(--red)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'Live feed' : 'Historical feed'} · OpenF1</span>
+          <div><div className="lbl">{meta.circuit} · {meta.type}</div><b style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' }}>{meta.year} {meta.country}</b></div>
+          <div className="kv"><small>{state.live ? 'Session time' : 'Clock'}</small><b className="mono">{clock(elapsed)} <span className="mu" style={{ fontSize: 13 }}>/ {clock(total)}</span></b></div>
+          {/Race|Sprint$/.test(meta.type) && <div className="kv"><small>Leader lap</small><b>{leaderLap}</b></div>}
           <span className={`track-status ts-${flagCls}`} style={{ margin: 0 }}>{flagText}</span>
           {w && <div className="kv"><small>Air · track · rain</small><b style={{ fontSize: 15 }}>{w.air}° · {w.track}° · <span style={{ color: w.rain ? 'var(--cyan)' : undefined }}>{w.rain ? 'RAIN' : 'dry'}</span></b></div>}
           {state.bestLap && <div className="kv"><small>Fastest lap</small><b style={{ fontSize: 15, color: 'var(--pur)' }}>{drivers.get(state.bestLap.n)?.code} {lt(state.bestLap.time)}</b></div>}
+          {state.buffering && <span className="chip" style={{ borderColor: 'var(--yel)', color: 'var(--yel)' }}>buffering from OpenF1…</span>}
           <span className="spacer" />
-          <div className="kv"><small>Recorded</small><b className="mono" style={{ fontSize: 13 }}>{new Date(state.t).toISOString().slice(11, 19)} UTC</b></div>
+          <div className="kv"><small>Recorded</small><b className="mono" style={{ fontSize: 13 }}>{new Date(state.t).toISOString().slice(0, 19).replace('T', ' ')} UTC</b></div>
         </div>
         <div style={{ padding: '0 16px 12px' }}>
           <div className="row" style={{ gap: 8 }}>
-            {role === 'race_control' && (
+            {canControl && (
               <>
                 <button className="btn sm" onClick={() => ctl({ action: state.playing ? 'pause' : 'play' })}>{state.playing ? 'Pause' : 'Play'}</button>
                 <div className="seg">{[1, 2, 4, 8, 16].map((s) => <button key={s} className={state.speed === s ? 'on' : ''} onClick={() => ctl({ action: 'speed', speed: s })}>{s}×</button>)}</div>
                 <button className="btn sm ghost" onClick={() => ctl({ action: 'restart' })}>Restart</button>
               </>
             )}
-            <input aria-label="Replay position" type="range" min="0" max={total} value={elapsed} disabled={role !== 'race_control'} style={{ flex: 1, minWidth: 160 }}
-              onChange={(e) => role === 'race_control' && ctl({ action: 'seek', t: Number(e.target.value) })} />
-            <span className="chip">{state.playing ? `playing ${state.speed}×` : 'paused'} · shared clock for every viewer</span>
+            <input aria-label="Session position" type="range" min="0" max={total} step="1000" value={Math.min(total, elapsed)} disabled={!canControl} style={{ flex: 1, minWidth: 160 }}
+              onChange={(e) => canControl && ctl({ action: 'seek', t: Number(e.target.value) })} />
+            <span className="chip">{state.live ? 'following real time' : state.playing ? `playing ${state.speed}×` : 'paused'} · shared clock{canControl ? '' : ' · sign in to control'}</span>
           </div>
         </div>
       </div>
@@ -119,7 +232,7 @@ export default function Replay() {
         </div>
       </div>
       <p className="mu" style={{ fontSize: 12, margin: 0 }}>
-        Real timing and telemetry from <a href="https://openf1.org" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>OpenF1</a>, an unofficial open API, used here for non-commercial demonstration. Not associated with Formula 1 companies. Car data is sampled at about 3.7 Hz and replayed on a shared server clock to every viewer in the <span className="mono">replay</span> room.
+        Real timing and telemetry from <a href="https://openf1.org" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>OpenF1</a>, an unofficial open API, used here for non-commercial demonstration. Not associated with Formula 1 companies. Car data is sampled at about 3.7 Hz and fed through the same real-time path a live feed uses, on one shared clock for every viewer in the session's <span className="mono">replay:{meta.key}</span> room.
       </p>
     </div>
   );
@@ -137,7 +250,7 @@ function DriverPanel({ d, row }) {
       <div className="cc-body" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
         <div className="kv"><small>km/h</small><b>{c ? Math.round(c.v) : '—'}</b></div>
         <div className="kv"><small>Gear</small><b>{c?.g || 'N'}</b></div>
-        <div className="kv"><small>RPM</small><b style={{ fontSize: 15 }}>{c ? c.rpm.toLocaleString() : '—'}</b></div>
+        <div className="kv"><small>RPM</small><b style={{ fontSize: 15 }}>{c?.rpm != null ? c.rpm.toLocaleString() : '—'}</b></div>
         <div className="kv"><small>DRS</small><b style={{ fontSize: 15, color: c?.drs ? 'var(--grn)' : 'var(--mu)' }}>{c?.drs ? 'OPEN' : 'off'}</b></div>
       </div>
       <div className="ped" style={{ padding: '10px 14px', borderBottom: '1px solid var(--ln)' }}>
@@ -228,7 +341,7 @@ function RealTrack({ meta, drivers, selected, onSelect }) {
     <div className="mapbox">
       <canvas ref={ref} onClick={onClick} style={{ cursor: 'pointer' }} aria-label="Track map of the real session with every car" />
       <div className="ov tl"><h4>{meta.circuit}</h4><span className="mu">{meta.drivers.length} cars · positions from the cars' own GPS-style coordinates</span></div>
-      <div className="ov br">{meta.frames.toLocaleString()} frames · {meta.events.toLocaleString()} events<br />5 Hz to the browser · interpolated 60 fps</div>
+      <div className="ov br">car data streamed in 2-minute chunks · cached in MongoDB<br />5 Hz to the browser · interpolated 60 fps</div>
     </div>
   );
 }

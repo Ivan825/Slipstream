@@ -149,23 +149,38 @@ The cursor is read in the same event-loop turn as the room join. Every frame bro
 
 The ghost lap works the same way: the best lap's 25 m trace is read from `laps`, and the live lap's time-at-distance is built from the merged buffer.
 
-## Real-session replay (OpenF1)
+## Real sessions: live and historical feeds (OpenF1)
 
 ```mermaid
 flowchart LR
-  OF[OpenF1 REST<br/>car_data · location · laps · position<br/>intervals · race_control · weather · pit · stints] -->|importer, rate-limited| DB[(MongoDB<br/>ReplaySession · ReplayFrame · ReplayEvent)]
-  DB -->|load once| RE[Replay engine<br/>shared clock · seek · speed]
-  RE -->|replay:frame 5 Hz · volatile| ROOM[/live room: replay/]
-  RE -->|replay:timing 2 Hz| ROOM
-  RE -->|replay:events as they happen| ROOM
+  subgraph Feeds
+    H[Historical feed<br/>any past session, free]
+    LV[Live feed<br/>current session, subscription key]
+  end
+  OF[(OpenF1 REST)] --> H & LV
+  H & LV -->|2-minute chunks: car_data + location + intervals<br/>metadata: drivers, laps, positions, race control, weather, pits, stints| SRC[SessionSource]
+  SRC <-->|cache / record every settled chunk| DB[(MongoDB<br/>ReplaySession · ReplayFrame · ReplayEvent)]
+  SRC --> CH[ReplayChannel<br/>shared clock · seek · speed · buffering]
+  CH -->|replay:frame 5 Hz · volatile| ROOM[/live room replay:&lt;session&gt;/]
+  CH -->|replay:timing 2 Hz| ROOM
+  CH -->|replay:events as they happen| ROOM
   ROOM --> UI[Real Data page]
+  M[ReplayManager<br/>open on demand · share · close idle] --- CH
 ```
 
-**Import.** The importer fetches a window of a real session, 15 minutes by default (about 60,000 frames and 6,000 events). It merges each driver's car data (about 3.7 Hz) with the nearest location sample, and stores everything time-stamped.
-
-**Playback.** The engine keeps per-driver frames in memory and binary-searches them for the clock time, interpolating x/y. It applies events in order to keep standings: position, gap, interval, laps, sectors, pit count, the tyre from the stints, the flag and the weather.
-
-**Seeking** resets that state and re-applies every event up to the new time, so a viewer who joins mid-session gets an exact snapshot in the subscribe acknowledgement.
+- **One path for both feeds.** A channel doesn't know whether it's fed live or from the past.
+  - The historical feed releases data on a real-time clock that can be paused, sought or sped up.
+  - The live feed follows the current session 8 s behind real time and refreshes the newest chunk every 3 s.
+- **Streaming, not bulk import.**
+  - Car data for all cars is fetched in 2-minute chunks, two or three chunks ahead of the clock. A chunk takes about 4.5 s to fetch, which is fast enough for 16× playback.
+  - While a chunk is missing, the clock waits and the UI shows "buffering".
+  - Requests to OpenF1 go through one shared, spaced queue that retries on 429.
+- **Cache and recording.** Every settled chunk is written to MongoDB, so a session is downloaded once. A live session is recorded as it happens and becomes replayable afterwards.
+- **Channels.**
+  - Each session is a Socket.IO room with its own clock. Everyone in that room sees the same moment.
+  - Anyone can open a channel (rate-limited). Signed-in users can control its clock.
+  - Channels with no viewers for 3 minutes close.
+  - Joining mid-session returns an exact snapshot: position, gaps, laps, sectors, tyres, flag and weather, rebuilt by re-applying events up to the clock.
 
 ## Data model
 

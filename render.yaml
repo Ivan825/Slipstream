@@ -28,10 +28,13 @@ services:
       # keeps the raw telemetry of a free-tier Atlas cluster (512 MB) well under its limit
       - key: DEMO_DIRECTOR
         value: "true"
-      # real-session replay: imported from OpenF1 on first boot (about a minute)
+      # pre-download the first minutes of a real session on first boot (any other session streams on demand)
       - key: REPLAY_AUTO_IMPORT
         value: "true"
       - key: REPLAY_SESSION
         value: "9636"
+      # optional: OpenF1 subscription key for the live feed
+      - key: OPENF1_TOKEN
+        sync: false
       - key: TELEMETRY_TTL_MIN
         value: "10"

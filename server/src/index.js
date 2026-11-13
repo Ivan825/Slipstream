@@ -10,7 +10,7 @@ import { attachLive } from './live/namespace.js';
 import { Broadcaster } from './live/broadcaster.js';
 import { ensureDemoUsers } from './auth.js';
 import { Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayFrame, ReplayEvent, ReplaySession } from './models/index.js';
-import { ReplayEngine } from './openf1/replay.js';
+import { ReplayManager } from './openf1/replay.js';
 import { importSession } from './openf1/importer.js';
 
 async function main() {
@@ -43,24 +43,21 @@ async function main() {
   broadcaster.attach(liveNsp);
   hub.start();
 
-  // real-session replay (OpenF1): one shared clock, streamed to the `replay` room
-  const replay = new ReplayEngine({
-    emit: (ev, payload) => {
-      const n = liveNsp.adapter.rooms.get('replay')?.size || 0;
+  // real sessions (OpenF1): channels opened on demand, one shared clock per session
+  const roomSize = (room) => liveNsp.adapter.rooms.get(room)?.size || 0;
+  hub.replays = new ReplayManager({
+    emit: (room, ev, payload) => {
+      const n = roomSize(room);
       if (!n) return;
-      (ev === 'replay:frame' ? liveNsp.to('replay').volatile : liveNsp.to('replay')).emit(ev, payload);
+      (ev === 'replay:frame' ? liveNsp.to(room).volatile : liveNsp.to(room)).emit(ev, payload);
       hub.metrics.inc('bcMessages', n);
     },
-    hasViewers: () => (liveNsp.adapter.rooms.get('replay')?.size || 0) > 0
+    viewers: roomSize
   });
-  hub.replay = replay;
-  replay.start();
-  replay.load(config.replaySession).then(async (meta) => {
-    if (meta || !config.replayAutoImport) return;
-    log.info(`replay: importing OpenF1 session ${config.replaySession} in the background`);
-    await importSession(config.replaySession, { minutes: config.replayMinutes });
-    await replay.load(config.replaySession);
-  }).catch((e) => log.warn('replay unavailable:', e.message));
+  if (config.replayAutoImport) {
+    importSession(config.replaySession, { minutes: config.replayMinutes })
+      .catch((e) => log.warn('replay pre-download failed:', e.message));
+  }
 
   server.listen(config.port, () => log.info(`Slipstream server on http://localhost:${config.port}`));
 
@@ -73,7 +70,7 @@ async function main() {
   const shutdown = async (sig) => {
     log.info(`${sig}: shutting down`);
     sim?.stop();
-    hub.replay?.stop();
+    hub.replays?.stop();
     broadcaster.stop();
     io.close();
     await hub.stop();
