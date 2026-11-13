@@ -19,6 +19,7 @@ Twenty cars stream hundreds of channels twenty times a second. Slipstream ingest
 </p>
 
 <p align="center">
+  <a href="https://slipstream-p92j.onrender.com"><strong>Live demo</strong></a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#what-you-get">What you get</a> ·
   <a href="#see-it">See it</a> ·
@@ -210,6 +211,16 @@ Idle channels close themselves.
 </table>
 
 The screenshots are real. They were captured from a running server on a laptop.
+
+## Try it
+
+**Live:** https://slipstream-p92j.onrender.com. It's on a free plan, so if nobody has visited for a while the first load can take up to a minute.
+
+- **Spectator:** no sign-in. Live timing, and **Real Data** for any Formula 1 session since 2023, with playback controls.
+- **Team engineer:** pick a team, password `slipstream`. Full telemetry, ghost lap, alerts and the strategist for that team's two cars.
+- **Race control:** `control` / `slipstream`. Start practice, qualifying or a race; set flags; schedule rain; inject incidents; change the stream rate.
+
+The hosted instance streams 20 cars at 10 Hz to fit the free CPU. Locally they stream at 20 Hz.
 
 ## Run it locally
 
