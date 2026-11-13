@@ -61,6 +61,13 @@ async function main() {
 
   server.listen(config.port, () => log.info(`Slipstream server on http://localhost:${config.port}`));
 
+  // free hosting tiers sleep without inbound traffic; ping our own public URL so live sessions keep running
+  if (config.keepAwakeUrl) {
+    const url = config.keepAwakeUrl.replace(/\/$/, '') + '/api/health';
+    setInterval(() => fetch(url).catch(() => {}), 10 * 60_000).unref();
+    log.info(`keep-awake ping every 10 min: ${url}`);
+  }
+
   let sim = null;
   if (config.embedSimulator) {
     const { startSimulator } = await import('@slipstream/simulator');

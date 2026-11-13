@@ -134,14 +134,23 @@ export class AnomalyEngine {
     } else s.slowSince = null;
   }
 
-  /** heartbeat: called periodically with all race cars */
+  /**
+   * Heartbeat: a car is only flagged when it goes silent while the rest of the
+   * field keeps streaming. If every source is late at once, the server (or the
+   * network) stalled, which is not a car problem, so no per-car alerts.
+   */
   heartbeat(cars, running) {
     if (!running) return;
     const now = Date.now();
-    for (const c of cars) {
-      if (!c.frame || c.finished) continue;
-      if (now - c.lastSeenAt > 2000) {
-        this.fire(c, 'TELEMETRY_LOST', 'warn', 'Telemetry lost', `No frames from car ${c.meta.number} for ${((now - c.lastSeenAt) / 1000).toFixed(1)} s`);
+    const live = cars.filter((c) => c.frame && !c.finished);
+    if (live.length < 3) return;
+    const silences = live.map((c) => now - c.lastSeenAt).sort((a, b) => a - b);
+    const median = silences[Math.floor(silences.length / 2)];
+    if (median > 1500) return; // field-wide stall
+    for (const c of live) {
+      const silent = now - c.lastSeenAt;
+      if (silent > 3000 && silent > median * 4) {
+        this.fire(c, 'TELEMETRY_LOST', 'warn', 'Telemetry lost', `No frames from car ${c.meta.number} for ${(silent / 1000).toFixed(1)} s while the rest of the field is streaming`);
       }
     }
   }

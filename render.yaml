@@ -41,5 +41,10 @@ services:
       - key: OPENF1_TOKEN
         sync: false
       # keeps the raw telemetry of a free-tier Atlas cluster (512 MB) well under its limit
+      # Render's free plan has 0.1 CPU: stream 20 cars at 10 Hz (200 events/s) and run the strategist every 6 s
+      - key: SIM_HZ
+        value: "10"
+      - key: STRATEGY_EVERY_SEC
+        value: "6"
       - key: TELEMETRY_TTL_MIN
         value: "10"

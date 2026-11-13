@@ -38,5 +38,6 @@ export const config = {
   bucket: { capacity: num(process.env.INGEST_BURST, 300), refillPerSec: num(process.env.INGEST_RATE, 150) },
   hotCacheFrames: 1200, // ~60 s per car at 20 Hz kept in memory
   slowClientBuffer: num(process.env.SLOW_CLIENT_BUFFER, 40),
-  strategyEverySec: 3
+  strategyEverySec: num(process.env.STRATEGY_EVERY_SEC, 3),
+  keepAwakeUrl: process.env.KEEP_AWAKE_URL ?? process.env.RENDER_EXTERNAL_URL ?? ''
 };

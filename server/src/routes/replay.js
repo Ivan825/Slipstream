@@ -52,8 +52,9 @@ export function replayRouter(hub) {
     res.json(ch.snapshot());
   });
 
-  r.post('/:key/control', (req, res) => {
-    if (req.user.role === 'viewer') return res.status(401).json({ error: 'sign in to control the shared clock' });
+  const controlLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'too many playback changes, slow down' } });
+  // anyone watching can drive the channel's shared clock (rate-limited), like a watch party
+  r.post('/:key/control', controlLimiter, (req, res) => {
     const ch = hub.replays.get(req.params.key);
     if (!ch) return res.status(404).json({ error: 'channel not open' });
     const p = z.object({ action: z.enum(['play', 'pause', 'seek', 'speed', 'restart']), t: z.number().min(0).optional(), speed: z.number().min(0.25).max(16).optional() }).safeParse(req.body);

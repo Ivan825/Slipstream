@@ -37,7 +37,7 @@ export class Hub extends EventEmitter {
     this.weather = new Weather({ random: config.randomWeather });
     this.session = {
       sessionId: null, type: 'race', name: '', status: 'idle', trackStatus: 'GREEN', totalLaps: config.raceLaps,
-      startedAt: null, finishedAt: null, simHz: 20, fresh: false, winner: null,
+      startedAt: null, finishedAt: null, simHz: Number(process.env.SIM_HZ) || 20, fresh: false, winner: null,
       segment: 0, endsAt: null, chequered: false, chequeredAt: null, grid: null
     };
     this.race = new RaceState({

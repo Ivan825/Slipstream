@@ -143,7 +143,7 @@ function Channel({ channelKey }) {
   const elapsed = state.t - state.from, total = state.to - state.from;
   const leaderLap = rows[0]?.lap || 0;
   const [flagText, flagCls] = FLAG[state.flag] || [state.flag || 'TRACK CLEAR', 'GREEN'];
-  const canControl = role && role !== 'viewer' && !state.live;
+  const canControl = !state.live;
   const ctl = async (body) => {
     try { await api(`/replay/${meta.key}/control`, { method: 'POST', body }); } catch (e) { toast({ kind: 'red', title: 'Replay', text: e.message }); }
   };
@@ -177,7 +177,7 @@ function Channel({ channelKey }) {
             )}
             <input aria-label="Session position" type="range" min="0" max={total} step="1000" value={Math.min(total, elapsed)} disabled={!canControl} style={{ flex: 1, minWidth: 160 }}
               onChange={(e) => canControl && ctl({ action: 'seek', t: Number(e.target.value) })} />
-            <span className="chip">{state.live ? 'following real time' : state.playing ? `playing ${state.speed}×` : 'paused'} · shared clock{canControl ? '' : ' · sign in to control'}</span>
+            <span className="chip">{state.live ? 'following real time' : state.playing ? `playing ${state.speed}×` : 'paused'} · shared clock for everyone watching</span>
           </div>
         </div>
       </div>
