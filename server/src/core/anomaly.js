@@ -121,7 +121,7 @@ export class AnomalyEngine {
     } else s.engSince = null;
 
     // 5. slow car on track under green
-    if (ctx.trackStatus === 'GREEN' && f.st !== 'PIT' && f.lap >= 1) {
+    if (ctx.trackStatus === 'GREEN' && f.st === 'RUN' && f.lap >= 1 && ctx.mode === 'race') {
       const ref = this.track.vRef[indexAt(this.track, f.d)] * 3.6;
       if (f.v < ref * 0.45 && f.v < 160) {
         s.slowSince ??= f.ts;

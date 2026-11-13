@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { CARS, CAR_BY_ID, TRACK_INFO, getTrack } from '@slipstream/shared';
+import { CARS, CAR_BY_ID, TRACK_INFO, getTrack, QUALI_FORMAT, PRACTICE_MINUTES, SESSION_LABEL } from '@slipstream/shared';
 import { config } from '../config.js';
 import { log } from '../lib/log.js';
-import { Telemetry, Lap, Alert, Session, Command } from '../models/index.js';
+import { Telemetry, Lap, Alert, Session, Command, PitStop } from '../models/index.js';
 import { Metrics } from './metrics.js';
 import { BatchWriter } from './batchWriter.js';
 import { RaceState } from './raceState.js';
@@ -35,12 +35,17 @@ export class Hub extends EventEmitter {
     });
     this.weather = new Weather({ random: config.randomWeather });
     this.session = {
-      sessionId: null, name: '', status: 'idle', trackStatus: 'GREEN', totalLaps: config.raceLaps,
-      startedAt: null, finishedAt: null, simHz: 20, fresh: false, winner: null
+      sessionId: null, type: 'race', name: '', status: 'idle', trackStatus: 'GREEN', totalLaps: config.raceLaps,
+      startedAt: null, finishedAt: null, simHz: 20, fresh: false, winner: null,
+      segment: 0, endsAt: null, chequered: false, chequeredAt: null, grid: null
     };
     this.race = new RaceState({
       onLap: (lap, car) => this.handleLap(lap, car),
       onPit: (p) => this.emit('pit', p),
+      onPitStop: (p) => {
+        PitStop.create(p).catch((e) => log.warn('pit stop write failed', e.message));
+        this.emit('pitstop', p);
+      },
       onFinish: (car, pos) => this.handleFinish(car, pos)
     });
     this.anomaly = new AnomalyEngine({ raise: (a) => this.raiseAlert(a) });
@@ -58,11 +63,12 @@ export class Hub extends EventEmitter {
       this.race.wetness = this.weather.wetness;
       this.metrics.g.sources = this.sources?.size ?? 0;
       this.metrics.tick();
-      this.anomaly.heartbeat([...this.race.cars.values()], this.session.status === 'running');
+      this.anomaly.heartbeat([...this.race.cars.values()].filter((c) => c.frame?.st !== 'GARAGE'), this.session.status === 'running');
+      this.sessionClock();
       this.emit('sim:state', this.simState());
     });
     every(5000, () => this.emit('session', this.publicSession()));
-    if (config.autoStart) setTimeout(() => this.newSession().catch((e) => log.error(e)), 1500);
+    if (config.autoStart) setTimeout(() => this.newSession(config.autoStartType).catch((e) => log.error(e)), 1500);
   }
 
   stop() {
@@ -121,7 +127,7 @@ export class Hub extends EventEmitter {
     const prevLap = this.race.cars.get(f.carId)?.lap;
     const car = this.race.apply(f, f.receivedAt || Date.now());
     if (!car) return;
-    this.anomaly.check(car, f, { trackStatus: this.session.trackStatus });
+    this.anomaly.check(car, f, { trackStatus: this.session.trackStatus, mode: this.session.type });
     if (prevLap != null && f.lap > prevLap) {
       const due = this.strategy.due(car.id, f.lap);
       if (due) this.pitCall(car.id, due.compound, due.by, 'scheduled');
@@ -163,6 +169,7 @@ export class Hub extends EventEmitter {
   }
 
   handleFinish(car, pos) {
+    if (this.session.type !== 'race') return;
     if (pos === 1) {
       this.session.winner = car.id;
       Session.updateOne({ sessionId: this.session.sessionId }, { $set: { winner: car.id } }).catch(() => {});
@@ -175,24 +182,73 @@ export class Hub extends EventEmitter {
 
   /* ---------------- session control ---------------- */
 
-  async newSession() {
+  async newSession(type = 'race') {
+    if (!['practice', 'qualifying', 'race'].includes(type)) throw new Error('bad session type');
+    clearTimeout(this.restartTimer);
     const now = new Date();
-    const id = 'R-' + now.toISOString().replace(/[-:T]/g, '').slice(0, 12);
+    const id = { practice: 'P', qualifying: 'Q', race: 'R' }[type] + '-' + now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    let grid = null;
+    if (type === 'race') {
+      // the race grid comes from the most recent qualifying session, if there is one
+      const q = await Session.findOne({ type: 'qualifying', status: 'finished', 'results.0': { $exists: true } }).sort({ endedAt: -1 }).lean();
+      if (q && Date.now() - new Date(q.endedAt).getTime() < 6 * 3600_000) grid = q.results.sort((a, b) => a.pos - b.pos).map((r) => r.carId);
+    }
+    const minutes = type === 'practice' ? config.practiceMinutes : type === 'qualifying' ? QUALI_FORMAT[0].minutes * config.qualiScale : null;
     this.session = {
-      ...this.session, sessionId: id, name: `${TRACK_INFO.shortName} Grand Prix`, status: 'running',
+      ...this.session, sessionId: id, type, name: `${TRACK_INFO.shortName} · ${SESSION_LABEL[type]}`, status: 'running',
       trackStatus: 'GREEN', startedAt: now.getTime(), finishedAt: null, fresh: true, winner: null,
-      totalLaps: config.raceLaps
+      totalLaps: type === 'race' ? config.raceLaps : 99, segment: 0,
+      endsAt: minutes ? now.getTime() + minutes * 60_000 : null, chequered: false, chequeredAt: null, grid
     };
-    this.race.reset(id, this.session.totalLaps);
+    this.race.reset(id, this.session.totalLaps, type);
+    if (type === 'qualifying') this.race.segment = QUALI_FORMAT[0].name;
     this.anomaly.reset();
     this.strategy.reset();
     this.weather.reset();
-    await Session.create({ sessionId: id, name: this.session.name, track: TRACK_INFO.id, totalLaps: this.session.totalLaps, status: 'running', startedAt: now });
-    log.info(`session ${id} started (${this.session.totalLaps} laps)`);
-    this.emit('sim:command', { type: 'reset' });
+    await Session.create({ sessionId: id, type, name: this.session.name, track: TRACK_INFO.id, totalLaps: this.session.totalLaps, status: 'running', startedAt: now, grid: grid || [] });
+    log.info(`session ${id} started (${type}${grid ? ', grid from qualifying' : ''})`);
+    this.emit('sim:command', { type: 'reset', mode: type, grid });
     this.broadcastSession({ event: 'start' });
     this.session.fresh = false;
     return this.session;
+  }
+
+  /** practice/qualifying clock: chequered flag, then end of segment once every car is back in */
+  sessionClock() {
+    const s = this.session;
+    if (s.status !== 'running' || s.type === 'race' || !s.endsAt) return;
+    const now = Date.now();
+    if (!s.chequered && now >= s.endsAt) {
+      s.chequered = true;
+      s.chequeredAt = now;
+      this.broadcastSession({ event: 'chequered' });
+    }
+    if (s.chequered) {
+      const onTrack = [...this.race.cars.values()].filter((c) => c.frame && c.frame.st !== 'GARAGE' && !this.race.knockedOut.has(c.id));
+      if (!onTrack.length || now - s.chequeredAt > 150_000) this.endSegment();
+    }
+  }
+
+  endSegment() {
+    const s = this.session;
+    if (s.type === 'practice') return this.finishSession();
+    const seg = QUALI_FORMAT[s.segment];
+    if (s.segment >= QUALI_FORMAT.length - 1) return this.finishSession();
+    const active = this.race.sessionRows().filter((r) => !r.ko);
+    const advancing = active.slice(0, seg.advance).map((r) => r.c);
+    active.slice(seg.advance).forEach((r, j) => {
+      this.race.knockedOut.set(r.c, { segment: seg.name, position: seg.advance + j + 1, best: r.best });
+    });
+    s.segment += 1;
+    const next = QUALI_FORMAT[s.segment];
+    this.race.segment = next.name;
+    this.race.segBest = new Map();
+    s.endsAt = Date.now() + next.minutes * config.qualiScale * 60_000;
+    s.chequered = false;
+    s.chequeredAt = null;
+    log.info(`qualifying: ${seg.name} over, knocked out ${active.slice(seg.advance).map((r) => r.c).join(', ')}`);
+    this.emit('sim:command', { type: 'segment', active: advancing, name: next.name });
+    this.broadcastSession({ event: 'segment', knockedOut: active.slice(seg.advance).map((r) => r.c) });
   }
 
   setStatus(status) {
@@ -203,16 +259,29 @@ export class Hub extends EventEmitter {
     this.broadcastSession({ event: status === 'paused' ? 'pause' : 'resume' });
   }
 
+  results() {
+    const rows = this.race.timingRows();
+    const grid = this.session.grid || [];
+    return rows.map((r, i) => ({
+      pos: r.pos ?? i + 1, carId: r.c, team: CAR_BY_ID[r.c]?.team, best: this.session.type === 'race' ? r.best : r.best,
+      laps: this.session.type === 'race' ? r.lap - (r.st === 'FIN' ? 1 : 0) : r.laps, gap: r.gap, status: r.st,
+      grid: grid.indexOf(r.c) >= 0 ? grid.indexOf(r.c) + 1 : null, knockedOut: r.ko || null, stops: r.stops
+    }));
+  }
+
   async finishSession() {
     if (this.session.status === 'finished') return;
     this.session.status = 'finished';
     this.session.finishedAt = Date.now();
-    await Session.updateOne({ sessionId: this.session.sessionId }, { $set: { status: 'finished', endedAt: new Date() } }).catch(() => {});
+    const results = this.results();
+    if (this.session.type !== 'race') this.session.winner = results[0]?.carId || null;
+    await Session.updateOne({ sessionId: this.session.sessionId }, { $set: { status: 'finished', endedAt: new Date(), results, winner: this.session.winner } }).catch(() => {});
     this.broadcastSession({ event: 'finish' });
     log.info(`session ${this.session.sessionId} finished, winner ${this.session.winner}`);
     if (config.autoRestartSec > 0) {
       clearTimeout(this.restartTimer);
-      this.restartTimer = setTimeout(() => this.newSession().catch((e) => log.error(e)), config.autoRestartSec * 1000);
+      const next = { practice: 'qualifying', qualifying: 'race', race: 'race' }[this.session.type];
+      this.restartTimer = setTimeout(() => this.newSession(next).catch((e) => log.error(e)), config.autoRestartSec * 1000);
     }
   }
 
@@ -231,7 +300,7 @@ export class Hub extends EventEmitter {
   simState() {
     const s = this.session;
     return {
-      sessionId: s.sessionId, status: s.status, trackStatus: s.trackStatus, totalLaps: s.totalLaps, fresh: s.fresh,
+      sessionId: s.sessionId, type: s.type, chequered: s.chequered, grid: s.grid, status: s.status, trackStatus: s.trackStatus, totalLaps: s.totalLaps, fresh: s.fresh,
       wetness: this.weather.wetness, rain: this.weather.rain, airTemp: this.weather.airTemp, trackTemp: this.weather.trackTemp, hz: s.simHz
     };
   }
@@ -239,8 +308,11 @@ export class Hub extends EventEmitter {
   publicSession(extra = {}) {
     const s = this.session;
     const leader = this.race.order()[0];
+    const seg = s.type === 'qualifying' ? QUALI_FORMAT[s.segment] : null;
     return {
-      sessionId: s.sessionId, name: s.name, status: s.status, trackStatus: s.trackStatus,
+      sessionId: s.sessionId, type: s.type, name: s.name, status: s.status, trackStatus: s.trackStatus,
+      segment: seg ? { index: s.segment, name: seg.name, advance: seg.advance, total: QUALI_FORMAT.length } : null,
+      endsAt: s.endsAt, chequered: s.chequered, grid: s.grid,
       totalLaps: s.totalLaps, lap: leader ? Math.max(1, Math.min(leader.lap, s.totalLaps)) : 0,
       startedAt: s.startedAt, finishedAt: s.finishedAt, winner: s.winner, simHz: s.simHz,
       fastest: this.race.fastest,

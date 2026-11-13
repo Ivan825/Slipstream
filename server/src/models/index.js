@@ -16,6 +16,7 @@ export const User = model('User', UserSchema);
 /* ---------- sessions (one race = one session) ---------- */
 const SessionSchema = new Schema({
   sessionId: { type: String, required: true, unique: true },
+  type: { type: String, enum: ['practice', 'qualifying', 'race'], default: 'race' },
   name: String,
   track: String,
   totalLaps: Number,
@@ -23,7 +24,9 @@ const SessionSchema = new Schema({
   startedAt: Date,
   endedAt: Date,
   winner: String,
-  fastestLap: { carId: String, lap: Number, timeMs: Number }
+  fastestLap: { carId: String, lap: Number, timeMs: Number },
+  grid: [String],
+  results: [{ _id: false, pos: Number, carId: String, team: String, best: Number, laps: Number, gap: Number, status: String, grid: Number, knockedOut: String, stops: Number }]
 }, { timestamps: true });
 export const Session = model('Session', SessionSchema);
 
@@ -68,6 +71,10 @@ const LapSchema = new Schema({
   stats: { maxSpeed: Number, avgSpeed: Number, maxTyreTemp: Number, maxBrakeTemp: Number, minPsi: Number, fuelUsed: Number },
   startSeq: Number,
   endSeq: Number,
+  position: Number,
+  gapMs: Number,
+  fuel: Number,
+  segment: String,
   trace: { d: [Number], t: [Number], v: [Number], thr: [Number], brk: [Number], g: [Number] }
 }, { versionKey: false, timestamps: { createdAt: true, updatedAt: false } });
 LapSchema.index({ sessionId: 1, carId: 1, lap: 1 }, { unique: true });
@@ -108,3 +115,11 @@ const CommandSchema = new Schema({
 }, { versionKey: false });
 CommandSchema.index({ sessionId: 1, ts: -1 });
 export const Command = model('Command', CommandSchema);
+
+/* ---------- pit stops (pit lane time + stationary time) ---------- */
+const PitStopSchema = new Schema({
+  sessionId: String, carId: String, team: String, lap: Number, stop: Number,
+  from: String, to: String, enterTs: Date, exitTs: Date, laneMs: Number, stationaryMs: Number
+}, { versionKey: false });
+PitStopSchema.index({ sessionId: 1, carId: 1, lap: 1 });
+export const PitStop = model('PitStop', PitStopSchema);

@@ -105,6 +105,7 @@ export function attachLive(io, hub, broadcaster) {
     const payload = { ...a, _id: String(a._id) };
     nsp.to(ROOMS.team(a.team)).to(ROOMS.CONTROL).emit(EV.ALERT, payload);
   });
+  hub.on('pitstop', (p) => nsp.to(ROOMS.TIMING).emit('pitstop', p));
   hub.on('alert:acked', (a) => nsp.to(ROOMS.team(a.team)).to(ROOMS.CONTROL).emit(EV.ALERT_ACKED, a));
   hub.on('command', (c) => {
     const target = c.team ? nsp.to(ROOMS.team(c.team)).to(ROOMS.CONTROL) : nsp.to(ROOMS.CONTROL);

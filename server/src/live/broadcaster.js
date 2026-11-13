@@ -141,7 +141,7 @@ export class Broadcaster {
    */
   strategy() {
     const hub = this.hub;
-    if (hub.session.status !== 'running') return;
+    if (hub.session.status !== 'running' || hub.session.type !== 'race') return;
     const queue = CARS.filter((car) => hub.race.cars.get(car.id)?.frame && (this.roomSize(ROOMS.team(car.team)) || this.roomSize(ROOMS.car(car.id))));
     const next = () => {
       const car = queue.shift();

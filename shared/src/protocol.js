@@ -52,14 +52,14 @@ export const ROOMS = {
 export const ROLES = { CONTROL: 'race_control', ENGINEER: 'engineer', VIEWER: 'viewer' };
 
 export const TRACK_STATUS = ['GREEN', 'YELLOW', 'VSC', 'SC', 'RED'];
-export const CAR_STATUS = ['RUN', 'PIT', 'OUT', 'SLOW', 'DNF'];
+export const CAR_STATUS = ['RUN', 'PIT', 'OUT', 'SLOW', 'DNF', 'GARAGE'];
 
 /**
  * RaceFrame: { t: serverTimeMs, s: tickSeq, f: [[carIndex, lap, distDm, speedKmh, statusCode], ...] }
  * Distance is sent in decimetres as an integer to keep the payload tiny.
  */
-export const STATUS_CODE = { RUN: 0, PIT: 1, OUT: 2, SLOW: 3, DNF: 4 };
-export const STATUS_FROM_CODE = ['RUN', 'PIT', 'OUT', 'SLOW', 'DNF'];
+export const STATUS_CODE = { RUN: 0, PIT: 1, OUT: 2, SLOW: 3, DNF: 4, GARAGE: 5 };
+export const STATUS_FROM_CODE = ['RUN', 'PIT', 'OUT', 'SLOW', 'DNF', 'GARAGE'];
 
 export function encodeRaceRow(index, lap, d, v, status) {
   return [index, lap, Math.round(d * 10), Math.round(v), STATUS_CODE[status] ?? 0];
@@ -70,3 +70,14 @@ export function decodeRaceRow(row) {
 
 /** HMAC-derived API keys for data sources: `<sourceId>.<hex>` */
 export const KEY_ALGO = 'sha256';
+
+/** Race weekend session types. Durations are scaled down so a whole weekend fits in a demo. */
+export const SESSION_TYPES = ['practice', 'qualifying', 'race'];
+export const SESSION_LABEL = { practice: 'Practice', qualifying: 'Qualifying', race: 'Race' };
+/** Knockout qualifying: each segment runs for `minutes`; the slowest cars after it are knocked out. */
+export const QUALI_FORMAT = [
+  { name: 'Q1', minutes: 7, advance: 15 },
+  { name: 'Q2', minutes: 6, advance: 10 },
+  { name: 'Q3', minutes: 6, advance: 10 }
+];
+export const PRACTICE_MINUTES = 15;

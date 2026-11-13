@@ -1,12 +1,17 @@
 /**
- * Race simulation model. Pure logic, no networking: the runner calls step(dt)
- * and drains telemetry frames from each car.
+ * Race weekend simulation model. Pure logic, no networking: the runner calls
+ * step(dt) and drains telemetry frames from each car.
  *
  * Each car follows the circuit's reference speed profile, scaled by a pace
- * factor that comes from the shared tyre/weather model (compound, tyre age,
- * wetness, fuel load, driver skill). Throttle, brake, gear, RPM, tyre surface
- * temperatures (inner/middle/outer per corner), tyre pressures, brake
- * temperatures, coolant/oil temperature, fuel and ERS all emerge from that.
+ * factor from the shared tyre/weather model (compound, tyre age, wetness, fuel
+ * load, driver skill, track evolution). Throttle, brake, gear, RPM, tyre
+ * surface temperatures (inner/middle/outer per corner), pressures, brake and
+ * coolant temperatures, fuel and ERS all emerge from that.
+ *
+ * Session modes
+ *   race        grid start, AI pit strategy, weather crossovers, SC stops
+ *   practice    cars run programmes from the garage: out-lap, push/long-run laps, in-lap
+ *   qualifying  knockout: out-lap, push lap, cool-down, in-lap; knocked-out cars stay in the garage
  */
 import {
   getTrack, indexAt, inDrsZone, CARS, COMPOUNDS, DRY, degradation, wetPenalty,
@@ -27,65 +32,110 @@ export function mulberry32(seed) {
 const CORNERS = ['FL', 'FR', 'RL', 'RR'];
 const GEAR_TOP = [0, 18, 28, 38, 48, 58, 68, 79, 200]; // m/s upper bound per gear index
 const START_FUEL = 62;
+const PRACTICE_PROGRAMMES = [
+  { prog: 'Installation', compound: 'M', laps: 1, fuel: 30 },
+  { prog: 'Set-up A', compound: 'M', laps: 3, fuel: 35 },
+  { prog: 'Quali sim', compound: 'S', laps: 1, fuel: 12, cool: true },
+  { prog: 'Quali sim', compound: 'S', laps: 2, fuel: 14 },
+  { prog: 'Long run', compound: 'H', laps: 7, fuel: 55 },
+  { prog: 'Long run', compound: 'M', laps: 6, fuel: 48 },
+  { prog: 'Set-up B', compound: 'M', laps: 3, fuel: 30 }
+];
 
 export class RaceSim {
-  constructor({ carCount = 20, totalLaps = 36, seed = 7 } = {}) {
+  constructor({ carCount = 20, totalLaps = 36, seed = 7, mode = 'race' } = {}) {
     this.track = getTrack();
     this.rng = mulberry32(seed);
     this.totalLaps = totalLaps;
     this.carCount = Math.min(carCount, CARS.length);
-    this.session = { status: 'idle', trackStatus: 'GREEN', wetness: 0, rain: 0, airTemp: 27, trackTemp: 41 };
+    this.mode = mode;
+    this.session = { status: 'idle', type: mode, trackStatus: 'GREEN', wetness: 0, rain: 0, airTemp: 27, trackTemp: 41, chequered: false };
     this.reset();
   }
 
-  reset() {
-    const { L } = this.track;
+  reset({ mode = this.mode, grid = null } = {}) {
+    const { L, pit } = this.track;
     const rnd = this.rng;
+    this.mode = mode;
     this.time = 0;
+    this.fieldLaps = 0;
     this.finishedLeader = false;
-    // shuffle grid a little but keep faster drivers roughly at the front
-    const grid = CARS.slice(0, this.carCount)
-      .map((c) => ({ c, k: c.pace + (rnd() - 0.5) * 0.9 }))
-      .sort((a, b) => a.k - b.k)
-      .map((x) => x.c);
+    let order;
+    if (grid?.length) {
+      const pos = new Map(grid.map((id, i) => [id, i]));
+      order = CARS.slice(0, this.carCount).slice().sort((a, b) => (pos.get(a.id) ?? 99) - (pos.get(b.id) ?? 99));
+    } else {
+      order = CARS.slice(0, this.carCount)
+        .map((c) => ({ c, k: c.pace + (rnd() - 0.5) * 0.9 }))
+        .sort((a, b) => a.k - b.k)
+        .map((x) => x.c);
+    }
     const prevSeq = new Map((this.cars || []).map((c) => [c.id, c.seq]));
-    this.cars = grid.map((meta, pos) => {
-      const compound = pos < 8 ? (rnd() < 0.6 ? 'S' : 'M') : (rnd() < 0.5 ? 'M' : 'H');
+    this.cars = order.map((meta, pos) => {
+      const race = mode === 'race';
+      const compound = race ? (pos < 10 ? (rnd() < 0.6 ? 'S' : 'M') : (rnd() < 0.5 ? 'M' : 'H')) : 'M';
       const car = {
         id: meta.id, team: meta.team, pace: meta.pace,
-        seq: prevSeq.get(meta.id) || 0, lap: 0, d: L - 30 - pos * 16, total: 0,
-        v: 0, thr: 0, brk: 0, gear: 1, rpm: 4000, drs: 0, ers: 100, fuel: START_FUEL,
+        seq: prevSeq.get(meta.id) || 0, lap: 0,
+        d: race ? L - 30 - pos * 16 : pit.box, total: 0,
+        v: 0, thr: 0, brk: 0, gear: race ? 1 : 0, rpm: 4000, drs: 0, ers: 100, fuel: race ? START_FUEL : 30,
         compound, tyreAge: 0, extraAge: 0, used: new Set([compound]),
-        tyreT: new Array(12).fill(compound === 'S' ? 82 : compound === 'M' ? 78 : 74),
+        tyreT: new Array(12).fill(race ? (compound === 'S' ? 82 : compound === 'M' ? 78 : 74) : 55),
         psi: [21.2, 21.2, 20.4, 20.4], brakeT: [420, 420, 380, 380], waterT: 96, oilT: 104,
-        status: 'RUN', pit: null, plannedStopAge: 0, stops: 0, retired: false, finished: false,
+        status: race ? 'RUN' : 'GARAGE', phase: race ? 'race' : 'garage',
+        pit: null, plannedStopAge: 0, stops: 0, retired: false, finished: false,
+        runs: [], runIdx: 0, nextRunAt: 0, pushDone: 0, active: true,
         incident: { puncture: null, brakeFade: 0, engine: 0, overheat: 0, overheatCorner: 0 },
-        outbox: [], gapAheadM: Infinity
+        outbox: [], gapAheadM: Infinity, garageTick: 0
       };
-      car.plannedStopAge = this.planStop(car);
+      if (race) car.plannedStopAge = this.planStop(car);
+      else if (mode === 'practice') this.planPractice(car);
+      else this.planQualiRuns(car);
       return car;
     });
     this.updateOrder();
   }
 
-  /** Simple AI: pit a few laps before the compound's cliff, with some variety. */
   planStop(car) {
     const c = COMPOUNDS[car.compound];
     return Math.max(5, Math.round(c.cliff - 3 - this.rng() * 4));
   }
 
-  setSession(s) {
-    const was = this.session.status;
-    Object.assign(this.session, s);
-    if (s.status === 'running' && (was === 'idle' || was === 'finished') && s.fresh) this.reset();
+  planPractice(car) {
+    const rnd = this.rng;
+    const picks = [PRACTICE_PROGRAMMES[0]];
+    const pool = PRACTICE_PROGRAMMES.slice(1).sort(() => rnd() - 0.5).slice(0, 4);
+    car.runs = picks.concat(pool).map((r) => ({ ...r }));
+    car.runIdx = 0;
+    car.nextRunAt = this.time + 5 + rnd() * 100;
   }
 
-  /** commands from race control / engineers */
+  planQualiRuns(car) {
+    const rnd = this.rng;
+    car.runs = [
+      { prog: 'Quali run 1', compound: 'S', laps: 1, fuel: 10 },
+      { prog: 'Quali run 2', compound: 'S', laps: 1, fuel: 10 }
+    ];
+    car.runIdx = 0;
+    car.nextRunAt = this.time + 4 + rnd() * 70;
+  }
+
+  setSession(s) {
+    const was = this.session.status;
+    const wasType = this.session.type;
+    Object.assign(this.session, s);
+    if (s.fresh && s.status === 'running' && (was !== 'running' || wasType !== s.type)) {
+      this.totalLaps = s.totalLaps || this.totalLaps;
+      this.reset({ mode: s.type || 'race', grid: s.grid });
+    }
+  }
+
+  /** commands from race control / engineers / the session clock */
   command(cmd) {
     const car = cmd.carId ? this.cars.find((c) => c.id === cmd.carId) : null;
     switch (cmd.type) {
       case 'pit':
-        if (car && !car.pit) {
+        if (car && !car.pit && car.phase === 'race') {
           car.pit = { phase: 'requested', compound: cmd.compound || this.nextCompound(car), source: cmd.by || 'engineer' };
         }
         break;
@@ -104,8 +154,19 @@ export class RaceSim {
       case 'tyre-overheat':
         if (car) { car.incident.overheat = 40; car.incident.overheatCorner = Math.floor(this.rng() * 2); }
         break;
+      case 'segment': {
+        // new qualifying segment: only `active` cars run again
+        const active = new Set(cmd.active || []);
+        this.session.chequered = false;
+        for (const c of this.cars) {
+          c.active = active.has(c.id);
+          if (c.active) this.planQualiRuns(c);
+          else c.runs = [];
+        }
+        break;
+      }
       case 'reset':
-        this.reset();
+        this.reset({ mode: cmd.mode || this.mode, grid: cmd.grid });
         break;
       default:
         break;
@@ -117,7 +178,6 @@ export class RaceSim {
     if (w > 0.3) return bestCompoundFor(w, ['I', 'W']);
     const remaining = this.totalLaps - car.lap;
     const options = DRY.filter((c) => !(car.used.size === 1 && car.used.has(c) && !COMPOUNDS[car.compound].wet));
-    // prefer a compound that can reach the flag
     const viable = options.filter((c) => COMPOUNDS[c].cliff >= remaining);
     const pool = viable.length ? viable : options;
     return pool.sort((a, b) => COMPOUNDS[a].offset - COMPOUNDS[b].offset)[0] || 'M';
@@ -125,12 +185,27 @@ export class RaceSim {
 
   updateOrder() {
     const { L } = this.track;
-    for (const c of this.cars) c.total = c.lap * L + c.d;
-    this.order = [...this.cars].filter((c) => !c.retired).sort((a, b) => b.total - a.total);
-    for (let i = 0; i < this.order.length; i++) {
-      const c = this.order[i], ahead = this.order[i - 1];
-      c.gapAheadM = ahead ? ahead.total - c.total : Infinity;
-      c.position = i + 1;
+    const onTrack = [];
+    for (const c of this.cars) {
+      c.total = c.lap * L + c.d;
+      if (!c.retired && c.status !== 'GARAGE') onTrack.push(c);
+    }
+    // physical order on track (for slipstream, DRS and traffic), by distance around the lap
+    if (this.mode === 'race') {
+      this.order = onTrack.sort((a, b) => b.total - a.total);
+      for (let i = 0; i < this.order.length; i++) {
+        const c = this.order[i], ahead = this.order[i - 1];
+        c.gapAheadM = ahead ? ahead.total - c.total : Infinity;
+        c.position = i + 1;
+      }
+    } else {
+      const byD = onTrack.sort((a, b) => b.d - a.d);
+      for (let i = 0; i < byD.length; i++) {
+        const c = byD[i], ahead = byD[i - 1] || byD[byD.length - 1];
+        c.gapAheadM = ahead && ahead !== c ? (ahead.d - c.d + L) % L : Infinity;
+        c.position = i + 1;
+      }
+      this.order = byD;
     }
   }
 
@@ -141,10 +216,45 @@ export class RaceSim {
     for (const car of this.cars) this.stepCar(car, dt);
   }
 
+  /** leave the garage for the next planned run */
+  startRun(car) {
+    const run = car.runs[car.runIdx];
+    if (!run) return;
+    car.compound = run.compound;
+    car.used.add(run.compound);
+    car.tyreAge = 0;
+    car.extraAge = 0;
+    car.fuel = run.fuel;
+    car.tyreT.fill(70); // tyre blankets
+    car.phase = 'lane-out';
+    car.status = 'PIT';
+    car.pit = { phase: 'lane-out', garage: true };
+    car.pushDone = 0;
+    car.run = run;
+  }
+
   stepCar(car, dt) {
     const T = this.track, s = this.session, rnd = this.rng;
     if (car.retired) return;
     const L = T.L;
+
+    // ---- garage (practice / qualifying) ----
+    if (car.phase === 'garage') {
+      car.v = 0; car.thr = 0; car.brk = 0; car.gear = 0; car.rpm = 0; car.drs = 0;
+      car.d = T.pit.box;
+      for (let k = 0; k < 12; k++) car.tyreT[k] += (55 - car.tyreT[k]) * Math.min(1, dt * 0.05);
+      for (let k = 0; k < 4; k++) car.brakeT[k] += (120 - car.brakeT[k]) * Math.min(1, dt * 0.05);
+      car.waterT += (70 - car.waterT) * Math.min(1, dt * 0.02);
+      car.oilT += (80 - car.oilT) * Math.min(1, dt * 0.02);
+      if (!s.chequered && car.active && car.runs[car.runIdx] && this.time >= car.nextRunAt) this.startRun(car);
+      // garage telemetry is sampled at a tenth of the rate
+      car.garageTick = (car.garageTick + 1) % 10;
+      if (car.phase === 'garage' && car.garageTick !== 0) return;
+      car.seq += 1;
+      car.outbox.push(this.frame(car));
+      return;
+    }
+
     const i = indexAt(T, car.d);
     const vRef = T.vRef[i];
     const kappa = T.kappa[i];
@@ -152,17 +262,21 @@ export class RaceSim {
     // ---- pace model (shared with the strategy engine) ----
     const fuelPen = car.fuel * FUEL_EFFECT_PER_KG;
     const compound = COMPOUNDS[car.compound];
-    let delta = compound.offset + degradation(car.compound, car.tyreAge + car.extraAge) + wetPenalty(car.compound, s.wetness) + fuelPen + car.pace;
+    const evolution = Math.min(0.6, this.fieldLaps * 0.004); // rubber goes down, the track gets faster
+    let delta = compound.offset + degradation(car.compound, car.tyreAge + car.extraAge) + wetPenalty(car.compound, s.wetness) + fuelPen + car.pace - evolution;
+    if (this.mode === 'qualifying' && car.phase === 'push') delta -= 0.35; // quali engine mode
     if (car.incident.puncture && car.psi[CORNERS.indexOf(car.incident.puncture)] < 12) delta += 25;
     if (car.incident.brakeFade > 0) delta += 1.2;
     const paceFactor = T.referenceLapS / (T.referenceLapS + delta);
     let target = vRef * paceFactor * (1 + (rnd() - 0.5) * 0.004);
+    if (car.phase === 'out') target *= 0.8;
+    if (car.phase === 'cool') target *= 0.7;
 
     // ---- race situation ----
     const ahead = car.gapAheadM;
     if (s.trackStatus === 'SC') {
       target = Math.min(target, car.position === 1 ? 44 : 50);
-      if (ahead < 35) target *= 0.85; else if (ahead > 80 && ahead < Infinity) target = Math.min(vRef * paceFactor, target * 1.3);
+      if (this.mode === 'race') { if (ahead < 35) target *= 0.85; else if (ahead > 80 && ahead < Infinity) target = Math.min(vRef * paceFactor, target * 1.3); }
     } else if (s.trackStatus === 'VSC') {
       target *= 0.68;
     } else if (s.trackStatus === 'RED') {
@@ -170,18 +284,24 @@ export class RaceSim {
     } else if (s.trackStatus === 'YELLOW' && T.sp[i] < 0.5) {
       target *= 0.94;
     }
-    const drsAllowed = s.trackStatus === 'GREEN' && s.wetness < 0.3 && car.lap > 2 && car.status === 'RUN';
-    car.drs = drsAllowed && inDrsZone(T, car.d) && ahead / Math.max(car.v, 1) < 1.0 ? 1 : 0;
+    const pushing = this.mode === 'race' ? car.status === 'RUN' && car.lap > 2 : car.phase === 'push';
+    const drsAllowed = s.trackStatus === 'GREEN' && s.wetness < 0.3 && pushing;
+    const drsGap = this.mode === 'race' ? ahead / Math.max(car.v, 1) < 1.0 : true;
+    car.drs = drsAllowed && inDrsZone(T, car.d) && drsGap ? 1 : 0;
     if (car.drs) target *= 1.035;
-    if (ahead < 45 && T.sp[i] > 0.8 && s.trackStatus === 'GREEN') target *= 1.008; // slipstream
-    if (ahead < 9) target *= 0.97; // can't drive through the car ahead
+    if (ahead < 45 && T.sp[i] > 0.8 && s.trackStatus === 'GREEN') target *= 1.008; // tow
+    if (ahead < 9) target *= 0.97;
 
     // ---- pit lane ----
     if (car.pit && car.pit.phase !== 'requested') {
       if (car.pit.phase === 'stop') {
         target = 0;
         car.pit.timer -= dt;
-        if (car.pit.timer <= 0) this.changeTyres(car);
+        if (car.pit.timer <= 0) {
+          if (car.pit.garage) this.toGarage(car);
+          else this.changeTyres(car);
+          if (car.phase === 'garage') { car.seq += 1; car.outbox.push(this.frame(car)); return; }
+        }
       } else {
         target = Math.min(target, T.pit.speedLimit);
       }
@@ -194,7 +314,7 @@ export class RaceSim {
     if (car.pit?.phase === 'stop') a = -car.v / Math.max(dt, 0.01);
     const prevD = car.d;
     car.v = Math.max(0, car.v + a * dt);
-    car.thr = a > 0 ? Math.min(1, 0.25 + a / accelMax * 0.75) : car.v > target * 0.995 ? 0 : 0.2;
+    car.thr = a > 0 ? Math.min(1, 0.25 + (a / accelMax) * 0.75) : car.v > target * 0.995 ? 0 : 0.2;
     if (a > -2 && a <= 0) car.thr = Math.min(1, 0.35 + T.sp[i] * 0.5);
     car.brk = a < -2 ? Math.min(1, -a / 48) : 0;
     car.d += car.v * dt;
@@ -203,21 +323,24 @@ export class RaceSim {
     if (car.d >= L) {
       car.d -= L;
       car.lap += 1;
-      if (car.lap > 1) car.tyreAge += 1;
+      this.fieldLaps += 1;
+      if (car.lap > 1 || this.mode !== 'race') car.tyreAge += 1;
       if (car.status === 'OUT') car.status = 'RUN';
-      if (car.lap > this.totalLaps) {
-        car.finished = true;
-        this.finishedLeader = true;
+      if (this.mode === 'race') {
+        if (car.lap > this.totalLaps) { car.finished = true; this.finishedLeader = true; }
+        this.aiDecide(car);
+      } else {
+        this.runLogic(car);
       }
-      this.aiDecide(car);
     }
     if (car.pit) {
       if (car.pit.phase === 'requested' && this.passed(prevD, car.d, T.pit.entry)) {
         car.pit.phase = 'lane-in'; car.status = 'PIT';
       } else if (car.pit.phase === 'lane-in' && this.passed(prevD, car.d, T.pit.box)) {
-        car.pit.phase = 'stop'; car.pit.timer = T.pit.stopS + rnd() * 0.6;
+        car.pit.phase = 'stop'; car.pit.timer = car.pit.garage ? 1.0 : T.pit.stopS + rnd() * 0.6;
       } else if (car.pit.phase === 'lane-out' && this.passed(prevD, car.d, T.pit.exit)) {
         car.pit = null; car.status = 'OUT';
+        if (car.phase === 'lane-out') car.phase = 'out';
       }
     }
 
@@ -238,15 +361,16 @@ export class RaceSim {
     for (let t = 0; t < 4; t++) {
       const front = t < 2, left = t % 2 === 0;
       const outer = leftTurn ? !left : left;
-      let target = compound.idealTemp - 10 + latG * (outer ? 5.8 : 2.2) + (front ? car.brk * 16 : car.thr * 6) + (s.trackTemp - 40) * 0.35 - wetCool;
-      if (front && !left) target += 3; // this circuit loads the front-right a little more
-      if (car.incident.overheat > 0 && t === car.incident.overheatCorner) target += 30;
-      if (car.pit?.phase === 'stop') target = 60;
+      let tt = compound.idealTemp - 10 + latG * (outer ? 5.8 : 2.2) + (front ? car.brk * 16 : car.thr * 6) + (s.trackTemp - 40) * 0.35 - wetCool;
+      if (front && !left) tt += 3; // this circuit loads the front-right a little more
+      if (car.phase === 'out') tt -= 6;
+      if (car.incident.overheat > 0 && t === car.incident.overheatCorner) tt += 30;
+      if (car.pit?.phase === 'stop') tt = 60;
       const k = 0.35 * dt;
       const camber = [4.5, 0, -3.5];
       for (let b = 0; b < 3; b++) {
         const idx = t * 3 + b;
-        const bandTarget = target + camber[b] + (b === 2 && outer ? latG * 1.4 : 0);
+        const bandTarget = tt + camber[b] + (b === 2 && outer ? latG * 1.4 : 0);
         car.tyreT[idx] += (bandTarget - car.tyreT[idx]) * k + (rnd() - 0.5) * 0.15;
       }
       const avg = (car.tyreT[t * 3] + car.tyreT[t * 3 + 1] + car.tyreT[t * 3 + 2]) / 3;
@@ -257,12 +381,10 @@ export class RaceSim {
         psi = Math.max(3.5, psi - car.punctureDrop);
       }
       car.psi[t] += (psi - car.psi[t]) * Math.min(1, 2 * dt);
-      // brakes
       let bTarget = 380 + car.brk * car.v * (front ? 10.5 : 7.5);
       if (car.incident.brakeFade > 0 && front) bTarget *= 1.55;
       car.brakeT[t] += (bTarget - car.brakeT[t]) * Math.min(1, dt * (car.brk > 0 ? 2.4 : car.incident.brakeFade > 0 ? 0.25 : 0.55));
     }
-    // overheating tyres wear faster
     const avgTyre = car.tyreT.reduce((x, y) => x + y, 0) / 12;
     const overheat = Math.max(0, avgTyre - compound.idealTemp - 12) * 0.08;
     car.extraAge += (overheat * car.v * dt) / L;
@@ -276,7 +398,10 @@ export class RaceSim {
     if (car.incident.engine > 0) car.incident.engine -= dt;
     if (car.incident.overheat > 0) car.incident.overheat -= dt;
     if (car.incident.puncture && car.status === 'RUN' && !car.pit && car.psi[CORNERS.indexOf(car.incident.puncture)] < 10) {
-      car.pit = { phase: 'requested', compound: this.nextCompound(car), source: 'auto' };
+      car.pit = this.mode === 'race'
+        ? { phase: 'requested', compound: this.nextCompound(car), source: 'auto' }
+        : { phase: 'requested', garage: true };
+      if (this.mode !== 'race') car.phase = 'cool';
     }
     if (car.status === 'RUN' && car.incident.puncture && car.psi[CORNERS.indexOf(car.incident.puncture)] < 12) car.status = 'SLOW';
 
@@ -284,8 +409,42 @@ export class RaceSim {
     car.outbox.push(this.frame(car));
   }
 
+  /** practice / qualifying run structure, decided at the line */
+  runLogic(car) {
+    const s = this.session;
+    if (car.phase === 'out') {
+      car.phase = 'push';
+      car.pushDone = 0;
+      if (s.chequered && this.mode === 'qualifying') { car.phase = 'cool'; this.boxForGarage(car); }
+      return;
+    }
+    if (car.phase === 'push') {
+      car.pushDone += 1;
+      const run = car.run || { laps: 1 };
+      if (s.chequered || car.pushDone >= run.laps) {
+        car.phase = 'cool';
+        this.boxForGarage(car);
+      }
+      return;
+    }
+  }
+
+  boxForGarage(car) {
+    if (!car.pit) car.pit = { phase: 'requested', garage: true };
+  }
+
+  toGarage(car) {
+    car.pit = null;
+    car.phase = 'garage';
+    car.status = 'GARAGE';
+    car.v = 0;
+    car.incident.puncture = null;
+    car.punctureDrop = 0;
+    car.runIdx += 1;
+    car.nextRunAt = this.time + (this.mode === 'qualifying' ? 30 + this.rng() * 60 : 40 + this.rng() * 90);
+  }
+
   passed(prev, cur, mark) {
-    const L = this.track.L;
     if (cur >= prev) return mark > prev && mark <= cur;
     return mark > prev || mark <= cur; // wrapped past the line
   }

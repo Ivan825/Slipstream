@@ -12,18 +12,23 @@ const TRACE_STEP_M = 25;
  * loop. That gives true time gaps updated 60x per lap without any history scan.
  */
 export class RaceState {
-  constructor({ onLap = () => {}, onPit = () => {}, onFinish = () => {} } = {}) {
+  constructor({ onLap = () => {}, onPit = () => {}, onPitStop = () => {}, onFinish = () => {} } = {}) {
     this.track = getTrack();
     this.loopLen = this.track.L / this.track.timingLoops;
     this.onLap = onLap;
     this.onPit = onPit;
+    this.onPitStop = onPitStop;
     this.onFinish = onFinish;
     this.reset('none', 36);
   }
 
-  reset(sessionId, totalLaps) {
+  reset(sessionId, totalLaps, mode = 'race') {
     this.sessionId = sessionId;
     this.totalLaps = totalLaps;
+    this.mode = mode;
+    this.segment = null;       // qualifying segment name (Q1/Q2/Q3)
+    this.segBest = new Map();  // carId -> best valid lap (ms) in the current segment
+    this.knockedOut = new Map(); // carId -> { segment, position, best }
     this.cars = new Map();
     this.loopFirst = new Map();
     this.fastest = null;
@@ -45,7 +50,8 @@ export class RaceState {
       lastLap: null, bestLap: null, lastSectors: [null, null, null], bestSectorsPB: [null, null, null], sectorFlags: [null, null, null],
       crossings: new Map(), lastCross: null,
       trace: null, nextSample: 0, stats: null, lapFlags: { pit: false, startedInPit: false, slow: false, sc: false },
-      stops: 0, stints: [], lapsCompleted: 0, finished: false, lastSeenAt: 0, lastBroadcastSeq: 0,
+      stops: 0, stints: [], lapsCompleted: 0, lapCount: 0, finished: false, lastSeenAt: 0, lastBroadcastSeq: 0,
+      pitLane: null, idealSectors: [null, null, null],
       hot: [], pending: [], lapHistory: []
     };
     this.cars.set(id, c);
@@ -110,9 +116,27 @@ export class RaceState {
     if (f.st === 'PIT' || f.st === 'OUT') c.lapFlags.pit = true;
     if (f.st === 'SLOW') c.lapFlags.slow = true;
     if (this.trackStatus === 'SC' || this.trackStatus === 'VSC' || this.trackStatus === 'RED') c.lapFlags.sc = true;
-    if (prev && f.st === 'PIT' && prev.st !== 'PIT') {
-      c.stops += 1;
-      this.onPit({ carId: c.id, team: c.team, lap: f.lap, compound: prev.tc, stop: c.stops });
+    if (prev && f.st === 'PIT' && prev.st !== 'PIT' && prev.st !== 'GARAGE') {
+      // pit lane entry
+      c.pitLane = { enterTs: f.ts, lap: f.lap, from: prev.tc, stillSince: null, stationaryMs: 0 };
+      if (this.mode === 'race') {
+        c.stops += 1;
+        this.onPit({ carId: c.id, team: c.team, lap: f.lap, compound: prev.tc, stop: c.stops });
+      }
+    }
+    if (c.pitLane) {
+      const pl = c.pitLane;
+      if (f.v < 1 && pl.stillSince == null) pl.stillSince = f.ts;
+      if (f.v >= 1 && pl.stillSince != null) { pl.stationaryMs += f.ts - pl.stillSince; pl.stillSince = null; }
+      if (f.st === 'GARAGE') c.pitLane = null; // practice/quali: back to the garage, not a pit stop
+      else if (prev && prev.st === 'PIT' && f.st !== 'PIT') {
+        this.onPitStop({
+          sessionId: this.sessionId, carId: c.id, team: c.team, lap: pl.lap, stop: c.stops,
+          from: pl.from, to: f.tc, enterTs: new Date(pl.enterTs), exitTs: new Date(f.ts),
+          laneMs: f.ts - pl.enterTs, stationaryMs: Math.round(pl.stationaryMs)
+        });
+        c.pitLane = null;
+      }
     }
     if (prev && f.tc !== prev.tc) c.stints.push({ compound: f.tc, fromLap: f.lap });
 
@@ -171,6 +195,13 @@ export class RaceState {
       c.lastLap = timeMs;
       c.lastSectors = sectors;
       c.lapsCompleted = completed;
+      c.lapCount += 1;
+      if (valid && this.mode === 'qualifying' && this.segment) {
+        const sb = this.segBest.get(c.id);
+        if (sb == null || timeMs < sb) this.segBest.set(c.id, timeMs);
+      }
+      const posNow = this.mode === 'race' ? this.order().indexOf(c) + 1 : null;
+      const leaderCross = this.loopFirst.get(f.lap * this.track.timingLoops);
       if (c.trace) this.pushTrace(c, this.track.L, timeMs, prev);
       const s = c.stats;
       const lap = {
@@ -185,6 +216,10 @@ export class RaceState {
           fuelUsed: Math.round((s.fuel0 - prev.fuel) * 10) / 10
         } : null,
         startSeq: c.lapStartSeq, endSeq: prev.seq,
+        position: posNow || null,
+        gapMs: this.mode === 'race' && leaderCross != null ? Math.max(0, Math.round(tCross - leaderCross)) : null,
+        fuel: prev.fuel,
+        segment: this.segment,
         trace: c.trace
       };
       c.lapHistory.push({ lap: completed, timeMs, valid, compound: prev.tc, tyreAge: prev.ta, wetness: lap.wetness, sc: c.lapFlags.sc });
@@ -241,7 +276,39 @@ export class RaceState {
     return { gap, int, lapsDown: Math.max(0, lapsDown) };
   }
 
+  /** theoretical best: sum of the car's best sectors */
+  ideal(c) {
+    return c.bestSectorsPB.every((x) => x != null) ? Math.round(c.bestSectorsPB.reduce((a, b) => a + b, 0)) : null;
+  }
+
+  /** practice / qualifying classification: by best lap (segment best in qualifying) */
+  sessionRows() {
+    const cars = [...this.cars.values()].filter((c) => c.frame);
+    const bestOf = (c) => (this.mode === 'qualifying' ? (this.segBest.get(c.id) ?? null) : c.bestLap);
+    const active = cars.filter((c) => !this.knockedOut.has(c.id))
+      .sort((a, b) => (bestOf(a) ?? 1e12) - (bestOf(b) ?? 1e12) || a.index - b.index);
+    const out = cars.filter((c) => this.knockedOut.has(c.id))
+      .sort((a, b) => this.knockedOut.get(a.id).position - this.knockedOut.get(b.id).position);
+    const ordered = active.concat(out);
+    const pole = bestOf(active[0]);
+    return ordered.map((c, i) => {
+      const ko = this.knockedOut.get(c.id);
+      const best = ko ? ko.best : bestOf(c);
+      const prevBest = i > 0 && !ko ? bestOf(ordered[i - 1]) : null;
+      const f = c.frame;
+      return {
+        c: c.id, pos: ko ? ko.position : i + 1, lap: c.lap, laps: c.lapCount,
+        best, gap: best != null && pole != null && !ko ? (best - pole) / 1000 : null,
+        int: best != null && prevBest != null ? (best - prevBest) / 1000 : null,
+        down: 0, last: c.lastLap, ideal: this.ideal(c), pb: c.bestLap,
+        fl: this.fastest?.carId === c.id ? 1 : 0, sf: c.sectorFlags.join(''),
+        tc: f.tc, ta: f.ta, stops: c.stops, st: f.st, drs: f.drs, ko: ko ? ko.segment : null
+      };
+    });
+  }
+
   timingRows() {
+    if (this.mode !== 'race') return this.sessionRows();
     const order = this.order();
     const leader = order[0];
     return order.map((c, i) => {
@@ -262,7 +329,9 @@ export class RaceState {
         ta: f.ta,
         stops: c.stops,
         st: c.finished ? 'FIN' : f.st,
-        drs: f.drs
+        drs: f.drs,
+        ideal: this.ideal(c),
+        laps: c.lapCount
       };
     });
   }

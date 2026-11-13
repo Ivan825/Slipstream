@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { CARS, TEAMS, CAR_BY_ID, TRACK_INFO, COMPOUNDS, ALL_COMPOUNDS } from '@slipstream/shared';
 import { Lap, Alert, Session, Telemetry, Command } from '../models/index.js';
 import { login, signToken, requireRole, canSeeCar, canSeeTeam, DEMO_PASSWORD } from '../auth.js';
+import { analysisRouter } from './analysis.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -167,10 +168,10 @@ export function apiRouter(hub) {
   const rc = Router();
   rc.use(requireRole('race_control'));
   rc.post('/session', wrap(async (req, res) => {
-    const body = parse(z.object({ action: z.enum(['new', 'pause', 'resume', 'finish']) }), req.body, res);
+    const body = parse(z.object({ action: z.enum(['new', 'pause', 'resume', 'finish']), type: z.enum(['practice', 'qualifying', 'race']).default('race') }), req.body, res);
     if (!body) return;
     try {
-      if (body.action === 'new') await hub.newSession();
+      if (body.action === 'new') await hub.newSession(body.type);
       if (body.action === 'pause') hub.setStatus('paused');
       if (body.action === 'resume') hub.setStatus('running');
       if (body.action === 'finish') await hub.finishSession();
@@ -221,6 +222,9 @@ export function apiRouter(hub) {
     res.json({ commands: await Command.find({ sessionId: hub.session.sessionId }).sort({ ts: -1 }).limit(100).lean() });
   }));
   r.use('/control', rc);
+
+  /* ---------- post-session analysis (public, like official timing) ---------- */
+  r.use('/analysis', analysisRouter(hub));
 
   /* ---------- metrics ---------- */
   r.get('/metrics', (_req, res) => {
