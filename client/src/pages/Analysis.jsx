@@ -53,7 +53,7 @@ export default function Analysis() {
         <>
           <div className="four">
             <div className="card kpi"><small>{SESSION_LABEL[s.type]} · {s.status}</small><b>{s.name?.split('·').pop()?.trim() || s.sessionId}</b></div>
-            <div className="card kpi"><small>{s.type === 'race' ? 'Winner' : 'Fastest'}</small><b>{s.winner || data.drivers[0]?._id || '—'}</b></div>
+            <div className="card kpi"><small>{s.type === 'race' ? (s.status === 'finished' ? 'Winner' : 'Leader') : s.type === 'qualifying' ? 'Pole' : 'Fastest'}</small><b>{s.winner || (s.type === 'race' ? [...data.laps].sort((a, b) => b.lap - a.lap || (a.position ?? 99) - (b.position ?? 99))[0]?.carId : data.drivers[0]?._id) || '—'}</b></div>
             <div className="card kpi"><small>Fastest lap</small><b style={{ color: 'var(--pur)' }}>{lt(data.drivers[0]?.best)}<em>{data.drivers[0]?._id}</em></b></div>
             <div className="card kpi"><small>Laps · stops · query</small><b>{data.laps.length}<em>{data.pitStops.length} stops · {data.ms} ms</em></b></div>
           </div>
@@ -72,7 +72,19 @@ export default function Analysis() {
 
 function Classification({ d }) {
   const s = d.session;
-  const results = s.results?.length ? s.results : d.drivers.map((x, i) => ({ pos: i + 1, carId: x._id, best: x.best, laps: x.laps }));
+  const results = useMemo(() => {
+    if (s.results?.length) return s.results;
+    const grid = s.grid || [];
+    if (s.type === 'race') {
+      // provisional: position at each car's latest completed lap
+      const last = new Map();
+      for (const l of d.laps) if (!last.has(l.carId) || l.lap > last.get(l.carId).lap) last.set(l.carId, l);
+      const best = new Map(d.drivers.map((x) => [x._id, x.best]));
+      return [...last.values()].sort((a, b) => b.lap - a.lap || (a.position ?? 99) - (b.position ?? 99))
+        .map((l, i) => ({ pos: i + 1, carId: l.carId, laps: l.lap, best: best.get(l.carId), grid: grid.indexOf(l.carId) + 1 || null, stops: null, status: 'RUNNING' }));
+    }
+    return d.drivers.map((x, i) => ({ pos: i + 1, carId: x._id, best: x.best, laps: x.laps }));
+  }, [d, s]);
   const ideal = new Map(d.sectorBests.map((x) => [x._id, x]));
   const [b1, b2, b3] = d.sessionBestSectors;
   return (
@@ -114,7 +126,7 @@ function Classification({ d }) {
                   <td className={`n ${x.s3 === b3 ? 'pur' : ''}`}>{s3(x.s3)}</td>
                   <td className="n">{lt(x.ideal)}</td>
                   <td className="n">{lt(x.best)}</td>
-                  <td className="n">{x.lostToIdeal != null ? '+' + s3(x.lostToIdeal) : '—'}</td>
+                  <td className="n">{x.lostToIdeal != null ? '+' + s3(Math.max(0, x.lostToIdeal)) : '—'}</td>
                 </tr>
               ))}
             </tbody>

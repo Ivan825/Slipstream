@@ -28,6 +28,11 @@ export class Broadcaster {
     every(1000 / config.timingHz, () => this.timing());
     every(1000, () => { this.metrics(); this.backpressure(); });
     every(config.strategyEverySec * 1000, () => this.strategy());
+    // push a car's frames as soon as its batch has been applied (no waiting for the tick)
+    this.hub.on('frames', (carId) => {
+      const c = this.hub.race.cars.get(carId);
+      if (c) this.flushCar(c, Date.now());
+    });
   }
 
   stop() { this.timers.forEach(clearInterval); }
@@ -61,22 +66,25 @@ export class Broadcaster {
       this.emit(ROOMS.RACE, EV.RACE, frame, { volatile: true });
       if (this.tick % Math.round(config.broadcastHz / config.publicHz) === 0) this.emit(ROOMS.RACE_2HZ, EV.RACE, frame, { volatile: true });
     }
-    // per-car full telemetry, batched
-    for (const c of hub.race.cars.values()) {
-      if (!c.pending.length) continue;
-      const frames = c.pending;
-      c.pending = [];
-      const room = ROOMS.car(c.id);
-      const last = frames[frames.length - 1];
-      c.lastBroadcastSeq = last.seq;
-      if (!this.roomSize(room)) continue;
-      for (const f of frames) {
-        hub.metrics.procLatency.add(now - (f.receivedAt || now));
-        hub.metrics.e2eLatency.add(Math.max(0, now - f.ts));
-      }
-      const clean = frames.map(({ receivedAt, ...f }) => f);
-      this.emit(room, EV.CAR, { c: c.id, t: now, f: clean }, { except: 'degraded' });
+    // frames released later by the reorder buffer are flushed here
+    for (const c of hub.race.cars.values()) this.flushCar(c, now);
+  }
+
+  /** full telemetry for one car, batched per ingest batch, only if someone is watching */
+  flushCar(c, now) {
+    if (!c.pending.length) return;
+    const frames = c.pending;
+    c.pending = [];
+    c.lastBroadcastSeq = frames[frames.length - 1].seq;
+    const room = ROOMS.car(c.id);
+    if (!this.roomSize(room)) return;
+    const m = this.hub.metrics;
+    for (const f of frames) {
+      m.procLatency.add(now - (f.receivedAt || now));
+      m.e2eLatency.add(Math.max(0, now - f.ts));
     }
+    const clean = frames.map(({ receivedAt, ...f }) => f);
+    this.emit(room, EV.CAR, { c: c.id, t: now, f: clean }, { except: 'degraded' });
   }
 
   timingSnapshot() {

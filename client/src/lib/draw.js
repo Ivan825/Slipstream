@@ -136,9 +136,11 @@ export function carXY(fit, total, status) {
   return { x, y };
 }
 
-export function pill(ctx, x, y, text, bg, fg) {
+export function pill(ctx, x, y, text, bg, fg, maxW = Infinity) {
   ctx.font = '900 11px "Titillium Web", sans-serif';
   const tw = ctx.measureText(text).width + 14;
+  if (x + tw > maxW - 4) x = x - tw - 28; // flip to the left near the right edge
+  if (y < 4) y = 4;
   ctx.fillStyle = bg;
   ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + tw, y); ctx.lineTo(x + tw - 5, y + 18); ctx.lineTo(x - 5, y + 18); ctx.closePath(); ctx.fill();
   ctx.fillStyle = fg; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x + 5, y + 9.5);

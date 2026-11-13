@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth, roleOf } from './store/auth.js';
-import { connectLive } from './lib/live.js';
+import { connectLive, useRooms } from './lib/live.js';
 import Nav from './components/Nav.jsx';
 import SessionBar from './components/SessionBar.jsx';
 import Overlays from './components/Overlays.jsx';
@@ -32,6 +32,11 @@ export default function App() {
   }, [role, auth.token]);
 
   if (!role) return <Login />;
+  return <Shell role={role} location={location} />;
+}
+
+function Shell({ role, location }) {
+  useRooms(['metrics']); // 1 Hz pipeline metrics feed the session bar everywhere
 
   return (
     <div className="shell">

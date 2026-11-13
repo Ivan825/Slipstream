@@ -35,21 +35,25 @@ export class StrategyEngine {
 
   /** learn the car's model residual from a completed, representative lap */
   learn(lap, fuelKg) {
-    if (!lap.valid || lap.wetness > 0.08 || lap.pitIn || lap.pitOut) return;
+    // lap 1 includes the standing start; in/out laps include the pit lane
+    if (!lap.valid || lap.lap <= 1 || lap.wetness > 0.08 || lap.pitIn || lap.pitOut) return;
     const meta = CAR_BY_ID[lap.carId];
     if (!meta) return;
     const predicted = predictLapTime({ base: 91, compound: lap.compound, age: lap.tyreAge, wetness: lap.wetness, fuelKg, driverPace: meta.pace });
     const r = lap.timeMs / 1000 - predicted;
     if (r < -3 || r > 15) return;
     const prev = this.residual.get(lap.carId);
-    this.residual.set(lap.carId, prev == null ? r : prev * 0.65 + r * 0.35);
+    this.residual.set(lap.carId, prev ? { mean: prev.mean * 0.65 + r * 0.35, n: prev.n + 1 } : { mean: r, n: 1 });
   }
 
+  /** per-car residual, shrunk toward the field average until the car has a few laps of evidence */
   residualFor(carId) {
-    const own = this.residual.get(carId);
-    if (own != null) return own;
     const all = [...this.residual.values()];
-    return all.length ? all.reduce((a, b) => a + b, 0) / all.length : DEFAULT_RESIDUAL;
+    const field = all.length ? all.reduce((a, b) => a + b.mean, 0) / all.length : DEFAULT_RESIDUAL;
+    const own = this.residual.get(carId);
+    if (!own) return field;
+    const w = own.n / (own.n + 3);
+    return w * own.mean + (1 - w) * field;
   }
 
   /* ------------------------------------------------------------------ */

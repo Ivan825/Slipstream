@@ -119,6 +119,7 @@ export class Hub extends EventEmitter {
     this.metrics.c.reordered = this.sequencer.counters.reordered;
     this.metrics.c.gaps = this.sequencer.counters.gaps;
     this.sequencer.drain(sourceId, now, (f) => this.applyFrame(f));
+    this.emit('frames', sourceId);
     return res;
   }
 

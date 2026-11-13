@@ -71,9 +71,11 @@ kbd { font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius
 .sessbar { display: flex; align-items: stretch; min-height: 60px; border-bottom: 1px solid var(--ln); background: linear-gradient(180deg, #191922, var(--bg)); overflow-x: auto; scrollbar-width: none; }
 .sessbar::-webkit-scrollbar { display: none; }
 .sessbar > div { display: flex; flex-direction: column; justify-content: center; padding: 0 18px; border-right: 1px solid var(--ln); white-space: nowrap; flex: none; }
+.sessbar small { display: block; }
 .sessbar small, .lbl { font-size: 10px; font-weight: 700; letter-spacing: .14em; color: var(--mu); text-transform: uppercase; }
 .sessbar b { font-weight: 900; font-size: 17px; text-transform: uppercase; }
 .sb-gp { flex-direction: row !important; align-items: center; gap: 12px; }
+.sb-gp b { display: block; }
 .flag-strip { width: 32px; height: 21px; border-radius: 2px; background: linear-gradient(180deg, #0b7a3b 0 33%, #fff 33% 66%, #c8102e 66%); box-shadow: 0 0 0 1px rgba(255,255,255,.2); }
 .sb-lap b { font-size: 24px; font-style: italic; }
 .sb-lap b span { font-size: 14px; color: var(--mu); font-style: normal; }
@@ -235,7 +237,7 @@ kbd { font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius
 .shift i { flex: 1; height: 14px; border-radius: 7px; background: #2c2c38; transition: background .06s, box-shadow .06s; }
 .rpmrow { display: flex; justify-content: space-between; align-items: baseline; }
 .rpmrow b { font-family: var(--mono); font-size: 24px; }
-.ped { display: grid; gap: 7px; }
+.ped { display: grid; gap: 7px; grid-template-columns: minmax(0, 1fr); justify-content: stretch; align-content: space-between; }
 .ped > div { display: grid; grid-template-columns: 62px 1fr 34px; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .ped span:last-child { font-family: var(--mono); text-align: right; }
 .trk { height: 10px; background: #2c2c38; border-radius: 2px; overflow: hidden; display: block; }

@@ -116,10 +116,10 @@ export default function TrackMap() {
     if (me) {
       const r = 12 + 4 * Math.sin(ts / 200);
       ctx.beginPath(); ctx.arc(me.x, me.y, r, 0, Math.PI * 2); ctx.strokeStyle = colorOf(me.id); ctx.lineWidth = 2; ctx.stroke();
-      pill(ctx, me.x + 14, me.y - 26, `${CAR_BY_ID[me.id].number}  ${me.id}`, colorOf(me.id), '#fff');
+      pill(ctx, me.x + 14, me.y - 26, `${CAR_BY_ID[me.id].number}  ${me.id}`, colorOf(me.id), '#fff', w);
     }
     const ld = drawn.find((d) => d.id === leader);
-    if (ld && ld.id !== sel && ld.status !== 'GARAGE') pill(ctx, ld.x + 12, ld.y - 24, `P1  ${ld.id}`, '#fff', '#15151e');
+    if (ld && ld.id !== sel && ld.status !== 'GARAGE') pill(ctx, ld.x + 12, ld.y - 24, `P1  ${ld.id}`, '#fff', '#15151e', w);
     ref.current._hits = drawn;
     void rows;
   }, [sel, mode, dominance, session?.weather?.rain]);
@@ -154,7 +154,10 @@ export default function TrackMap() {
         </div>
         {sel && (
           <div className="ov tr">
-            {[0, 1, 2].map((k) => <div key={k} className="sect" style={{ borderColor: sector(k) }}><small>S{k + 1}</small><b>{sel}</b></div>)}
+            {[0, 1, 2].map((k) => {
+              const f = useTiming.getState().rows[sel]?.sf?.[k];
+              return <div key={k} className="sect" style={{ borderColor: sector(k) }}><small>{sel} · S{k + 1}</small><b style={{ color: sector(k) }}>{f === 'p' ? 'FASTEST' : f === 'g' ? 'PB' : f === 'y' ? 'SLOWER' : '—'}</b></div>;
+            })}
           </div>
         )}
         <div className="ov bl">
