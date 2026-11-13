@@ -250,7 +250,7 @@ npm run loadtest -- --clients 200 --sources 50 --hz 50 --duration 30
 | How | Notes |
 |---|---|
 | **Docker** | `docker compose up --build` starts MongoDB and Slipstream (API, sockets, simulator and dashboard) on port 4000 |
-| **Render** | [`render.yaml`](render.yaml) is a one-service blueprint. Set `MONGO_URI` to a MongoDB Atlas connection string; the secrets are generated for you |
+| **Render + Vercel** | API and sockets on Render ([`render.yaml`](render.yaml)), dashboard on Vercel ([`client/vercel.json`](client/vercel.json)), database on MongoDB Atlas. Step by step in [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | **Any VM or PaaS** | `npm ci && npm run build`, then `SERVE_CLIENT=true EMBED_SIMULATOR=true npm start` |
 | **Split** | Dashboard on Vercel ([`client/vercel.json`](client/vercel.json), with `VITE_API_URL` set to the API), server elsewhere |
 
@@ -286,6 +286,7 @@ Diagrams, the data model and every performance technique are in [`docs/ARCHITECT
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System and data-flow diagrams, the socket protocol, the history merge, the MongoDB schema, timing, performance and security |
 | [`docs/STRATEGY.md`](docs/STRATEGY.md) | How the strategy engine models tyres, weather, pit loss and rivals, and the what-if API |
 | [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md) | The practice, qualifying, race and analysis views, mapped to what race engineers use, with a glossary |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Step-by-step deployment: MongoDB Atlas, Render (API and sockets), Vercel (dashboard) |
 | [`docs/STRESS_TEST.md`](docs/STRESS_TEST.md) | Load-test method and results |
 | [`.env.example`](.env.example) | Every setting |
 
