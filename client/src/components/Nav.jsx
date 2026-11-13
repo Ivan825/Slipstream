@@ -29,25 +29,26 @@ export default function Nav() {
   const real = source.kind === 'real';
   const toSim = () => { useUI.setState({ lastReal: source }); setSource({ kind: 'sim' }); nav('/pitwall'); };
   const toReal = () => { if (lastReal?.key) { setSource(lastReal); nav('/pitwall'); } else nav('/real'); };
-  const who = role === 'race_control' ? 'RACE CONTROL' : role === 'engineer' ? `ENGINEER · ${TEAM_BY_ID[user.team]?.name.toUpperCase()}` : 'SPECTATOR';
-  const initials = (user?.username || 'SP').slice(0, 2).toUpperCase();
+  const who = role === 'race_control' ? 'RACE CONTROL' : role === 'engineer' ? `ENGINEER · ${TEAM_BY_ID[user.team]?.name.toUpperCase()}` : 'GUEST';
+  const initials = (user?.username || 'GU').slice(0, 2).toUpperCase();
 
   return (
     <header className="nav">
       <NavLink to="/" className="logo"><Mark />Slipstream</NavLink>
       <div className="seg source-switch" title={real ? source.name : 'Simulated race weekend'}>
         <button className={!real ? 'on' : ''} onClick={toSim}>Sim</button>
-        <button className={real ? 'on' : ''} onClick={toReal}>{real ? `Real · ${(source.name || '').replace(/^\d{4}\s/, '').split(' · ')[0]}` : 'Real'}</button>
+        <button className={real ? 'on' : ''} onClick={toReal}>{real ? `${source.mock ? 'Mock' : source.live || source.key === 'live' ? 'Live' : 'Replay'} · ${(source.name || '').replace(/^\d{4}\s/, '').split(' · ')[0]}` : 'Real'}</button>
       </div>
       <nav className="nav-links">
-        <NavLink to="/" end>Home</NavLink>
+        <NavLink to="/" end>Launcher</NavLink>
         <NavLink to="/pitwall">Pit Wall</NavLink>
         {real
           ? <NavLink to={`/car/${realDriver || firstReal || ''}`}>Telemetry</NavLink>
           : role !== 'viewer' && <NavLink to={`/car/${defaultCar(user)}`}>Telemetry</NavLink>}
         {(real || role !== 'viewer') && <NavLink to="/strategy">Strategy</NavLink>}
         <NavLink to="/analysis">Analysis</NavLink>
-        <NavLink to="/real">F1 Sessions</NavLink>
+        {real && source.mock && <NavLink to="/debrief">Debrief</NavLink>}
+        <NavLink to="/real">Archive</NavLink>
         {role === 'race_control' && <NavLink to="/control">Race Control</NavLink>}
         <NavLink to="/systems">Systems</NavLink>
       </nav>

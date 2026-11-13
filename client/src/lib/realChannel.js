@@ -12,7 +12,8 @@ import { useUI } from '../store/stores.js';
 let pending = null; // { key, p, at }: one open request shared by every caller
 const openOnce = (key) => {
   if (pending && pending.key === key && Date.now() - pending.at < 10_000) return pending.p;
-  const p = api('/replay/open', { method: 'POST', body: { key: key === 'live' ? 'live' : Number(key) } });
+  const body = { key: key === 'live' || String(key).startsWith('m-') ? String(key) : Number(key) };
+  const p = api('/replay/open', { method: 'POST', body });
   pending = { key, p, at: Date.now() };
   return p;
 };
@@ -30,9 +31,11 @@ export function useRealChannel(key) {
       .then((snap) => {
         if (!alive) return;
         useReplay.getState().snapshot(snap);
-        setOpened(String(snap.meta.key));
+        setOpened(String(snap.meta.ch ?? snap.meta.key));
         const src = useUI.getState().source;
-        if (src.kind !== 'real' || String(src.key) !== String(key)) useUI.getState().setSource({ kind: 'real', key: String(key), name: snap.meta.name });
+        const mock = !!snap.meta.mock;
+        if (src.kind !== 'real' || String(src.key) !== String(key) || !!src.mock !== mock || src.name !== snap.meta.name) useUI.getState().setSource({ kind: 'real', key: String(key), name: snap.meta.name, mock, live: !!snap.meta.live });
+        if (mock && snap.meta.mock.team && !useUI.getState().realTeam) useUI.getState().setRealTeam(snap.meta.mock.team);
       })
       .catch((e) => alive && setError(e.message));
     return () => { alive = false; };

@@ -5,8 +5,8 @@
   </picture>
 </p>
 
-<p align="center"><strong>The pit wall, live.</strong><br>
-Twenty cars stream hundreds of channels twenty times a second. Slipstream ingests the data, makes sense of it and puts it in front of the right engineer within a few milliseconds. It runs a whole race weekend and tells you when to pit.</p>
+<p align="center"><strong>Race engineering software for the pit wall.</strong><br>
+Strategy, telemetry and alerts for a race team on real Formula 1 timing. Work the live session, rehearse any past race as a mock session with your own clock and a debrief, or drill a full weekend in the simulator, where twenty cars stream hundreds of channels twenty times a second and reach the right engineer within a few milliseconds.</p>
 
 <p align="center">
   <a href="https://github.com/Ivan825/Slipstream/actions/workflows/ci.yml"><img src="https://github.com/Ivan825/Slipstream/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -146,24 +146,26 @@ Every frame identifies its source, sequence number and timestamp:
 
 [The engineering reference →](docs/RACE_ENGINEERING.md)
 
-**Real sessions, live or replayed.** The home page and the **F1 Sessions** page open any Formula 1 session since 2023 (practice, qualifying, sprints, races) from [OpenF1](https://openf1.org), with real drivers, teams and colours.
+**Real Formula 1 timing: live sessions and mock sessions.** Pick your team once (McLaren, Ferrari, …) and every real session is set up around your two cars. Data comes from [OpenF1](https://openf1.org): any session since 2023, with real drivers, teams and colours.
 
-There's one feed path with two feeds behind it:
+- **Live session:** with an OpenF1 subscription key (`OPENF1_TOKEN`, or `OPENF1_USERNAME` and `OPENF1_PASSWORD`) the pit wall follows the session running right now, a few seconds behind real time, and records it as it runs so it can be rehearsed afterwards.
+- **Mock session:** a crew's private copy of a past race on its own clock. It starts paused, at lights out or at any lap you choose. Pause, jump to a lap or run at up to 16×. Share the link and everyone on it works the same clock. Mocks are kept in MongoDB for 60 days, so a crew can pick one up again.
+- **Your calls, logged.** On the strategy page each of your cars has a strategist card and a row of call buttons (box for S/M/H/I/W, or stay out). A call is stamped with the mock clock, the car's lap, position and tyres, and what the strategist advised at that moment.
+- **Debrief.** After the mock, every call is set against what the real team did: whether they stopped within a lap of your box call, on which tyres, and where the car finished. A strategy timeline draws the tyres each car really ran with your box calls marked on it.
+- **Team alerts.** A watcher on the session clock raises what an engineer needs to hear about your cars: the strategist's call changing to a stop, an undercut threat, a rival around you pitting, safety cars, red flags and rain.
+- **Archive:** any session can also be opened on a shared clock for everyone looking at it, for a quick review.
 
-- **Historical feed:** any past session, no key needed. The server streams the whole session in 2-minute chunks just ahead of a real-time clock, so you live through it as if it were happening. You can pause, seek anywhere, or play at up to 16×.
-- **Live feed:** add an OpenF1 subscription key (`OPENF1_TOKEN`, or `OPENF1_USERNAME` and `OPENF1_PASSWORD`) and the same channel follows the session running right now, a few seconds behind real time.
+The strategist works from the session's own data, up to the clock: pit loss measured from the stops already made (and what it costs under a VSC or safety car), degradation from lap times on the current set, tyre life from finished stints, where each car would rejoin if it boxed now, undercut threats and chances, the second-dry-compound rule, and a suggested set to fit.
 
-The pit wall, telemetry, analysis and **strategy** pages all follow the chosen session. On real races the strategist works from the session's own data: pit loss measured from the stops already made, degradation from lap times on the current set, tyre life from finished stints, where each car would rejoin if it boxed now, undercut threats, and cheap stops under a safety car or red flag.
+There's one feed path behind all of it. The server streams a session in 2-minute chunks just ahead of the clock. Every chunk is packed into one compressed MongoDB document (about 100 KB for two minutes of all 20 cars), so a session is downloaded once. Stored sessions are capped at a size budget (`REPLAY_CACHE_MB`, default 200 MB) and the least recently used are dropped first; they download again if needed.
 
-Every chunk is packed into one compressed document in MongoDB (about 100 KB for two minutes of all 20 cars) as it's fetched. A session is downloaded once, and a live session is **recorded as it happens** and can be replayed afterwards.
-
-Each session plays as a shared **channel** (Socket.IO room `replay:<session>`) on one clock, so everyone watching the same race sees the same moment, while other viewers can be on other races. The channel sends:
+Each channel is a Socket.IO room: `replay:<session>` for a shared session, `replay:m-<id>` for a mock. It sends:
 
 - positions interpolated to 5 Hz;
 - live timing at 2 Hz;
 - race-control messages, laps, pit stops and weather as they happen.
 
-Idle channels close themselves.
+Idle channels close themselves, saving a mock's clock first.
 
 **A demo director.** An optional scripted storyline plays out during the race through the normal race-control path, so a dashboard left open always has something happening: overheating, rain, a puncture, a safety car, brake fade, a VSC.
 
@@ -179,7 +181,7 @@ Idle channels close themselves.
 
 **Numbers, not claims.** A Systems page shows live ingest and broadcast rates, latency percentiles, duplicates, reordered and late frames, DB batch timing, back-pressured clients and event-loop lag. The [stress test](docs/STRESS_TEST.md) records **5,359 events/s from 120 sources with 500 dashboards connected, at a position-frame latency of 11 ms p50 and 23 ms p95**, with nothing shed.
 
-**Roles.** Race control sees everything. An engineer sees full telemetry, alerts and strategy for their own team's two cars only, enforced on every REST call and every room join. Anyone can watch public timing at 2 Hz without signing in.
+**Roles.** In the simulator, race control sees everything and an engineer sees full telemetry, alerts and strategy for their own team's two cars only, enforced on every REST call and every room join. Real sessions use public data, so they need no account.
 
 ## See it
 
@@ -201,7 +203,13 @@ Idle channels close themselves.
     <td width="50%"><img src="docs/images/practice.png" alt="Practice: classification by best lap with cars in the garage and pit lane, and the run monitor tagging out and push laps"><br><sub>Practice: cars run programmes from the garage, and the run monitor tags each lap.</sub></td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/images/home.png" alt="Home page asking what you want to watch: a live card with the next Formula 1 session and a countdown, a card to relive the latest race or any past session, a card for the simulated weekend, and the grid of every session of the season"><br><sub>The front door, no sign-in: watch F1 live (with an OpenF1 key), relive any session since 2023, or run the simulated weekend.</sub></td>
+    <td colspan="2"><img src="docs/images/home.png" alt="The launcher: team picker, a live session card with the next Formula 1 session and a countdown, a mock session card to rehearse a past race from any lap, the simulator card, the crew's saved mock sessions and the session calendar"><br><sub>The launcher: pick your team, then work the live session, start a mock session of a past race, or open the simulator.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/mock-strategy.png" alt="Strategy page in a mock session of the 2024 São Paulo GP for McLaren: pit loss, race state and tyre life, a strategist card for each McLaren with the call, tyres, degradation, rejoin position and call buttons, team alerts and the crew's call log"><br><sub>A mock session for McLaren: a strategist for each car, the crew's call buttons, team alerts and the call log.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/debrief.png" alt="Debrief: calls made, share that matched the real team, laps covered, a timeline of the tyres each car really ran with the crew's box calls marked, and a table of every call with what the strategist said, what the team did and where the car finished"><br><sub>The debrief: every call against what the real team did, and the real strategy with your calls marked on it.</sub></td>
   </tr>
   <tr>
     <td colspan="2"><img src="docs/images/real-data.png" alt="Real data replay of the 2024 Brazilian Grand Prix: live timing with real drivers on intermediates, the Interlagos circuit drawn from car coordinates, George Russell's live telemetry and the race-control message feed"><br><sub>Real data: the full wet 2024 Brazilian GP fed through the historical feed on a shared clock, with live timing, every car on the circuit, driver telemetry and race-control messages.</sub></td>
@@ -218,13 +226,13 @@ The screenshots are real. They were captured from a running server on a laptop.
 
 **Live:** https://slipstream-p92j.onrender.com. It's on a free plan, so if nobody has visited for a while the first load can take up to a minute.
 
-No sign-in is needed to watch. The home page asks what you want to see:
+No sign-in is needed. Pick your team on the launcher, then:
 
-- **Live:** the Formula 1 session running right now (needs an OpenF1 key on the server; otherwise it shows the next session and a countdown).
-- **Relive a race:** any practice, qualifying, sprint or race since 2023, on a real-time clock you can pause, seek or speed up. The pit wall, telemetry and analysis pages all follow the session you pick.
-- **Simulated weekend:** our own 20-car race with deep telemetry, alerts and the strategist.
+- **Live session:** the Formula 1 session running right now (needs an OpenF1 key on the server; otherwise it shows the next session and a countdown).
+- **Mock session:** choose a past race and a starting lap, then **Start mock session**. Use **Strategy and calls** to make your pit calls, **Share with crew** to send the link, and **Debrief** to see how your calls compare with what the team really did.
+- **Simulator:** a 20-car weekend with deep telemetry, alerts and the strategist.
 
-Sign in (top right) to take a seat on the simulated weekend's pit wall:
+Sign in (top right) to take a seat on the simulator's pit wall:
 
 - **Team engineer:** pick a team, password `slipstream`. Full telemetry, ghost lap, alerts and the strategist for that team's two cars.
 - **Race control:** `control` / `slipstream`. Start practice, qualifying or a race; set flags; schedule rain; inject incidents; change the stream rate.
@@ -244,13 +252,13 @@ npm run dev          # server :4000 + simulator + dashboard on http://localhost:
 
 Or start everything with one command: `docker compose up --build`, then open http://localhost:4000.
 
-Watching needs no account. To sign in as an engineer or race control, use a demo account. The password for every account is `slipstream`.
+Real sessions need no account. To sign in as an engineer or race control, use a demo account. The password for every account is `slipstream`.
 
 | Role | Username |
 |---|---|
 | Race control | `control` |
 | Engineer | the team id: `kestrel`, `vortex`, `ardent`, `halcyon`, `solaris`, `monarch`, `nordwind`, `verdant`, `azzurra`, `basalt` |
-| Viewer | no sign-in |
+| Guest | no sign-in |
 
 A race starts on its own. **For a demo:**
 

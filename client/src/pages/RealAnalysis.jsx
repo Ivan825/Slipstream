@@ -22,7 +22,7 @@ const TABS = [['classification', 'Classification'], ['history', 'Race history'],
 export default function RealAnalysis() {
   useTicker(1);
   const { meta, state } = useReplay();
-  const data = useRealAnalysis(meta?.key);
+  const data = useRealAnalysis(meta?.ch ?? meta?.key);
   const [params, setParams] = useSearchParams();
   const tab = TABS.some(([k]) => k === params.get('tab')) ? params.get('tab') : 'classification';
   const [full, setFull] = useState(false);

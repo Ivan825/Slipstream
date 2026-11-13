@@ -159,13 +159,14 @@ flowchart LR
   end
   OF[(OpenF1 REST)] --> H & LV
   H & LV -->|2-minute chunks: car_data + location + intervals<br/>metadata: drivers, laps, positions, race control, weather, pits, stints| SRC[SessionSource]
-  SRC <-->|cache / record every settled chunk| DB[(MongoDB<br/>ReplaySession · ReplayFrame · ReplayEvent)]
+  SRC <-->|cache / record every settled chunk| DB[(MongoDB<br/>ReplaySession · ReplayChunk · ReplayEvent · Mock)]
   SRC --> CH[ReplayChannel<br/>shared clock · seek · speed · buffering]
   CH -->|replay:frame 5 Hz · volatile| ROOM[/live room replay:&lt;session&gt;/]
   CH -->|replay:timing 2 Hz| ROOM
   CH -->|replay:events as they happen| ROOM
   ROOM --> UI[Pit wall, telemetry, analysis]
-  M[ReplayManager<br/>open on demand · share · close idle] --- CH
+  M[ReplayManager<br/>open on demand · share · private mocks · close idle · cache budget] --- CH
+  CH -.->|mock clock saved| DB
 ```
 
 - **One path for both feeds.** A channel doesn't know whether it's fed live or from the past.
@@ -175,11 +176,13 @@ flowchart LR
   - Car data for all cars is fetched in 2-minute chunks, two or three chunks ahead of the clock. A chunk takes about 4.5 s to fetch, which is fast enough for 16× playback.
   - While a chunk is missing, the clock waits and the UI shows "buffering".
   - Requests to OpenF1 go through one shared, spaced queue that retries on 429.
-- **Cache and recording.** Every settled chunk is written to MongoDB, so a session is downloaded once. A live session is recorded as it happens and becomes replayable afterwards.
+- **Cache and recording.** Every settled chunk is written to MongoDB as one packed, compressed document, so a session is downloaded once. A live session is recorded as it happens and becomes replayable afterwards. Stored sessions are kept under a size budget (`REPLAY_CACHE_MB`); the least recently used are dropped first, never one that is playing.
 - **Channels.**
   - Each session is a Socket.IO room with its own clock. Everyone in that room sees the same moment.
-  - Anyone can open a channel (rate-limited). Signed-in users can control its clock.
-  - Channels with no viewers for 3 minutes close.
+  - Anyone can open a shared channel (rate-limited) and drive its clock, like a watch party.
+  - A **mock session** gets a private channel `m-<id>` (room `replay:m-<id>`) with its own clock: it starts paused at the chosen lap and never loops. The id is unguessable and works as the crew's link. The `Mock` document keeps the team, the clock and every call the crew logs (`POST /api/mocks/:id/calls`, stamped server-side with the clock, lap, position and tyres). Mocks expire 60 days after last use.
+  - Channels with no viewers for 3 minutes close; a mock's clock is saved first, and opening its link again reopens it where the crew left off.
+  - The team watcher (alerts) and the debrief run in the browser on the same analysis data as the strategist, so they behave the same live, in a mock or in a replay.
   - Joining mid-session returns an exact snapshot: position, gaps, laps, sectors, tyres, flag and weather, rebuilt by re-applying events up to the clock.
 
 ## Data model

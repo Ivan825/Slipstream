@@ -79,6 +79,9 @@ export const useUI = create((set, get) => ({
   source: ui0.source || { kind: 'sim' },
   setSource(source) { set({ source }); uiSave({ ...uiLoad(), source }); },
   realDriver: ui0.realDriver || null,
+  // the crew's team in real sessions (OpenF1 team name); its cars get the strategist, alerts and highlights
+  realTeam: ui0.realTeam || null,
+  setRealTeam(t) { set({ realTeam: t }); uiSave({ ...uiLoad(), realTeam: t }); },
   setRealDriver(n) { set({ realDriver: n }); uiSave({ ...uiLoad(), realDriver: n }); },
   selected: ui0.selected || null,
   sound: !!ui0.sound,

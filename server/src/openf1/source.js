@@ -5,7 +5,7 @@ import { ReplaySession, ReplayChunk, ReplayEvent } from '../models/index.js';
 import { log } from '../lib/log.js';
 
 export const CHUNK_MS = 120_000;
-const VERSION = 3;
+export const VERSION = 3;
 const deflate = promisify(zlib.deflate), inflate = promisify(zlib.inflate);
 const COLS = 10; // dt, n, x, y, v, g, thr, brk, rpm, drs
 
@@ -58,6 +58,7 @@ export class SessionSource {
         this.meta = cached;
         this.events = events.map((e) => ({ ...e, t: +e.t }));
         this.chunks = new Set(cached.chunks || []);
+        ReplaySession.updateOne({ key: cached.key }, { lastUsed: new Date() }).catch(() => {});
         return this.meta;
       }
     }
@@ -114,7 +115,7 @@ export class SessionSource {
       v: VERSION, key, name: `${session.year} ${session.country_name} · ${session.session_name}`, year: session.year,
       circuit: session.circuit_short_name, country: session.country_name, location: session.location, type: session.session_name,
       meeting: session.meeting_key, from: new Date(from), to: new Date(to), drivers, stints, track, complete, chunkMs: CHUNK_MS,
-      events: events.length, importedAt: new Date()
+      events: events.length, importedAt: new Date(), lastUsed: new Date()
     };
     this.events = events;
     // keep chunks already recorded (e.g. while this session was live); drop data from older formats
@@ -214,4 +215,31 @@ export class SessionSource {
     }
     return out.filter((e) => e.t > since).sort((a, b) => a.t - b.t);
   }
+}
+
+/**
+ * Keep stored sessions under a size budget (the free MongoDB tier has 512 MB in all).
+ * Drops whole sessions, least recently used first, never one that is playing.
+ */
+export async function pruneReplayCache({ maxBytes, keep = new Set() }) {
+  const size = async (name) => {
+    try { const s = await ReplayChunk.db.db.command({ collStats: name }); return (s.size || 0) + (s.totalIndexSize || 0); } catch { return 0; }
+  };
+  let total = (await size('replaychunks')) + (await size('replayevents'));
+  if (total <= maxBytes) return [];
+  const sessions = await ReplaySession.find({}, { key: 1, name: 1, lastUsed: 1, importedAt: 1, chunks: 1 }).lean();
+  sessions.sort((a, b) => +(a.lastUsed || a.importedAt || 0) - +(b.lastUsed || b.importedAt || 0));
+  const dropped = [];
+  for (const s of sessions) {
+    if (total <= maxBytes * 0.85) break;
+    if (keep.has(s.key)) continue;
+    await ReplayChunk.deleteMany({ s: s.key });
+    await ReplayEvent.deleteMany({ s: s.key });
+    await ReplaySession.deleteOne({ key: s.key });
+    // estimate what was freed; the true figure only settles after compaction
+    total -= (s.chunks?.length || 0) * 110_000 + 600_000;
+    dropped.push(s.name);
+  }
+  if (dropped.length) log.info(`replay cache: dropped ${dropped.length} least recently used sessions: ${dropped.join(', ')}`);
+  return dropped;
 }

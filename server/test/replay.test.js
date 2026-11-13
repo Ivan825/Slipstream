@@ -59,3 +59,23 @@ test('replay frames interpolate between samples and events stream as they happen
   assert.ok(evs.some((x) => x.type === 'lap' && x.fastest));
   void t0;
 });
+
+test('a mock channel has its own id and room, and restarts to where the mock began', () => {
+  const sent = [];
+  const e = new ReplayChannel({ key: 1, mock: { id: 'abc123def456', startAt: 1_000_500, team: 'McLaren' }, emit: (room, ev, p) => sent.push([room, ev, p]), viewers: () => 1 });
+  e.ensure = () => {};
+  e.meta = { key: 1, name: 'Test', drivers: [{ n: 1, code: 'AAA' }], stints: [], track: [] };
+  e.events = []; e.intervals = []; e.cars = new Map();
+  e.from = 1_000_000; e.to = 1_010_000;
+  e.seek(e.mock.startAt);
+  assert.equal(e.ch(), 'm-abc123def456');
+  assert.equal(e.room(), 'replay:m-abc123def456');
+  assert.equal(e.loop, false, 'a mock never loops');
+  e.control({ action: 'seek', t: 5000 });
+  assert.equal(e.t, 1_005_000);
+  e.control({ action: 'restart' });
+  assert.equal(e.t, 1_000_500, 'restart returns to the mock start');
+  assert.equal(e.playing, false, 'and waits for the crew');
+  assert.ok(sent.every(([room, , p]) => room === 'replay:m-abc123def456' && p.k === 'm-abc123def456'));
+  assert.equal(e.snapshot().meta.mock.team, 'McLaren');
+});

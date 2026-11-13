@@ -382,3 +382,7 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 .home-big { display: block; font-size: 20px; font-weight: 900; text-transform: uppercase; margin: 2px 0; }
 @media (max-width: 760px) { .home-hero { padding: 20px 16px; } .home-hero h1 { font-size: 28px; } .home-hero svg { display: none; } }
 .card-b .big { font-size: 22px; }
+
+.link-btn { background: none; border: 0; padding: 0 2px; color: var(--mu); font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.link-btn:hover { color: #fff; }
+.team-pick select { font-weight: 700; }

@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth, roleOf } from './store/auth.js';
 import { connectLive, useRooms } from './lib/live.js';
@@ -18,7 +18,9 @@ import Replay, { Channel } from './pages/Replay.jsx';
 import RealTelemetry from './pages/RealTelemetry.jsx';
 import RealAnalysis from './pages/RealAnalysis.jsx';
 import RealStrategy from './pages/RealStrategy.jsx';
+import Debrief from './pages/Debrief.jsx';
 import { useRealChannel } from './lib/realChannel.js';
+import { useMock, useTeamWatch, rememberMock } from './lib/crew.js';
 import { useUI } from './store/stores.js';
 
 function Page({ children }) {
@@ -47,6 +49,15 @@ function Shell({ role, location }) {
   const source = useUI((s) => s.source);
   const realKey = source.kind === 'real' ? source.key : null;
   useRealChannel(realKey); // every page follows the chosen real session
+  useTeamWatch(); // alerts for the crew's cars in real sessions
+  const mockId = source.kind === 'real' && String(source.key).startsWith('m-') ? String(source.key).slice(2) : null;
+  useEffect(() => {
+    useMock.getState().load(mockId);
+    if (!mockId) return;
+    // crew mates log calls too: keep the shared call log fresh
+    const id = setInterval(() => useMock.getState().load(mockId), 15_000);
+    return () => clearInterval(id);
+  }, [mockId]);
 
   return (
     <div className="shell">
@@ -63,10 +74,29 @@ function Shell({ role, location }) {
           <Route path="/systems" element={<Page><Systems /></Page>} />
           <Route path="/real" element={<Page><Replay /></Page>} />
           <Route path="/real/:key" element={<Page><Replay /></Page>} />
+          <Route path="/mock/:id" element={<MockEntry />} />
+          <Route path="/mock/:id/debrief" element={<MockEntry to="/debrief" />} />
+          <Route path="/debrief" element={<Page><Debrief /></Page>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AnimatePresence>
       <Overlays />
     </div>
   );
+}
+
+/** a mock link (shared by a crew mate or reopened later): switch the app to that mock's private channel */
+function MockEntry({ to = '/pitwall' }) {
+  const { id } = useParams();
+  const ok = /^[a-z0-9]{8,16}$/.test(id || '');
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (ok) {
+      const src = useUI.getState().source;
+      if (src.key !== `m-${id}`) useUI.getState().setSource({ kind: 'real', key: `m-${id}`, name: 'Mock session', mock: true });
+      rememberMock(id);
+    }
+    setReady(true);
+  }, [id, ok]);
+  return ready ? <Navigate to={ok ? to : '/'} replace /> : null;
 }

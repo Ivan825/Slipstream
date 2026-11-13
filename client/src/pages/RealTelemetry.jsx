@@ -11,16 +11,29 @@ import { RealTrack, gapText } from './Replay.jsx';
 const lt = (s) => (s == null ? '—' : formatLapTime(s));
 const s3 = (x) => (x == null ? '—' : x.toFixed(3));
 
-/** laps of a real session, refreshed while it plays */
+/**
+ * Laps, stints and stops of a real session. One fetch per channel shared by every
+ * page and the team watcher; a live session is refreshed every 30 s.
+ */
+const analysisCache = new Map(); // channel -> { data, at, p, subs:Set }
 export function useRealAnalysis(key) {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(() => (key && analysisCache.get(String(key))?.data) || null);
   useEffect(() => {
-    if (!key) return;
-    let alive = true;
-    const load = () => api(`/replay/${key}/analysis`).then((d) => alive && setData(d)).catch(() => {});
+    if (!key) { setData(null); return; }
+    const k = String(key);
+    let e = analysisCache.get(k);
+    if (!e) { e = { data: null, at: 0, p: null, subs: new Set() }; analysisCache.set(k, e); }
+    const sub = (d) => setData(d);
+    e.subs.add(sub);
+    const load = () => {
+      if (e.p || Date.now() - e.at < 25_000) return;
+      e.p = api(`/replay/${k}/analysis`).then((d) => { e.data = d; e.at = Date.now(); e.subs.forEach((f) => f(d)); }).catch(() => {}).finally(() => { e.p = null; });
+    };
+    if (e.data) setData(e.data);
     load();
-    const id = setInterval(load, 30_000);
-    return () => { alive = false; clearInterval(id); };
+    // a finished session's timing never changes; only live sessions need refreshing
+    const id = setInterval(() => { if (useReplay.getState().meta?.live) load(); }, 30_000);
+    return () => { e.subs.delete(sub); clearInterval(id); };
   }, [key]);
   return data;
 }
@@ -35,7 +48,7 @@ export default function RealTelemetry() {
   const n = Number(id) || useUI.getState().realDriver || rows[0]?.n;
   const d = drivers.get(n);
   const row = rows.find((r) => r.n === n);
-  const analysis = useRealAnalysis(meta?.key);
+  const analysis = useRealAnalysis(meta?.ch ?? meta?.key);
   useEffect(() => { if (n) setRealDriver(n); }, [n, setRealDriver]);
 
   if (!meta || !state.loaded) return <div className="card"><div className="empty"><b>Opening the real session</b>Loading drivers and timing from OpenF1.</div></div>;

@@ -5,7 +5,7 @@ import { CARS, TEAMS, CAR_BY_ID, TRACK_INFO, COMPOUNDS, ALL_COMPOUNDS } from '@s
 import { Lap, Alert, Session, Telemetry, Command } from '../models/index.js';
 import { login, signToken, requireRole, canSeeCar, canSeeTeam, DEMO_PASSWORD } from '../auth.js';
 import { analysisRouter } from './analysis.js';
-import { replayRouter } from './replay.js';
+import { replayRouter, mockRouter } from './replay.js';
 import { verifyApiKey } from '../lib/keys.js';
 import { config } from '../config.js';
 
@@ -248,6 +248,7 @@ export function apiRouter(hub) {
   /* ---------- post-session analysis (public, like official timing) ---------- */
   r.use('/analysis', analysisRouter(hub));
   r.use('/replay', replayRouter(hub));
+  r.use('/mocks', mockRouter(hub));
 
   /* ---------- metrics ---------- */
   r.get('/metrics', (_req, res) => {

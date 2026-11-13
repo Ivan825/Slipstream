@@ -6,8 +6,12 @@ import { api } from '../lib/api.js';
 import { useCanvas, useAnimationFrame, useTicker } from '../lib/hooks.js';
 import { useReplay, replayCars, replayPos, replayTrace, replayClock } from '../store/replay.js';
 import { useAuth } from '../store/auth.js';
-import { useToasts } from '../store/stores.js';
+import { useToasts, useUI } from '../store/stores.js';
 import { Tyre } from '../components/TimingTower.jsx';
+import { TeamPicker } from '../components/TeamPicker.jsx';
+import { sameTeam, teamDrivers } from '../lib/teams.js';
+import { useRealAnalysis } from './RealTelemetry.jsx';
+import { TeamAlerts } from './RealStrategy.jsx';
 import { formatLapTime } from '@slipstream/shared';
 
 export { RealTrack, DriverPanel, FLAG, clock, gapText };
@@ -66,7 +70,7 @@ export function SessionGrid({ onPick, title = 'Every session', subtitle }) {
                   <div className="row" style={{ gap: 6 }}>
                     {m.sessions.map((s) => {
                       const ended = Date.parse(s.end) < now;
-                      return <button key={s.key} className={`btn sm ${/^Race$/.test(s.name) ? 'red' : ''}`} disabled={!ended} title={ended ? `Watch ${s.name}` : 'Not run yet'} onClick={() => onPick(s.key)}>{s.name}</button>;
+                      return <button key={s.key} className={`btn sm ${/^Race$/.test(s.name) ? 'red' : ''}`} disabled={!ended} title={ended ? `Open ${s.name}` : 'Not run yet'} onClick={() => onPick(s.key)}>{s.name}</button>;
                     })}
                   </div>
                 </div>
@@ -92,7 +96,7 @@ function Browser() {
   return (
     <div className="stack">
       <div className="page-title">
-        <div><h1>F1 sessions</h1><p>Every Formula 1 session since 2023, from OpenF1. Pick one and live through it as if it were happening now: the server streams the session through the same real-time path a live feed uses, on a shared clock for everyone watching.</p></div>
+        <div><h1>Archive</h1><p>Every Formula 1 session since 2023, from OpenF1. Open one to review it on a shared clock with anyone else looking at it. To rehearse a race with your own clock, call log and debrief, start a mock session from the launcher.</p></div>
       </div>
       <div className="three">
         <div className={`card ${channels.live ? 'hl' : ''}`}>
@@ -100,17 +104,17 @@ function Browser() {
           <div className="card-b stack" style={{ gap: 8 }}>
             <p className="mu" style={{ margin: 0, fontSize: 13 }}>Follows the session that is running right now, a few seconds behind real time, and records it to MongoDB so it can be replayed afterwards.</p>
             {channels.live
-              ? <button className="btn red" onClick={() => nav('/real/live')}>Watch live</button>
+              ? <button className="btn red" onClick={() => nav('/real/live')}>Open the live session</button>
               : <p className="mu" style={{ margin: 0, fontSize: 12 }}>OpenF1 real-time data needs a subscription. Set <span className="mono">OPENF1_TOKEN</span> (or <span className="mono">OPENF1_USERNAME</span> / <span className="mono">OPENF1_PASSWORD</span>) on the server to enable it. Past sessions are free.</p>}
           </div>
         </div>
         <div className="card">
-          <div className="card-h"><b>Watching now</b><span className="chip">{channels.channels.length} channels</span></div>
+          <div className="card-h"><b>Open right now</b><span className="chip">{channels.channels.length} shared sessions</span></div>
           <div className="card-b stack" style={{ gap: 6 }}>
-            {!channels.channels.length && <span className="mu" style={{ fontSize: 13 }}>Nobody is watching a session. Pick one below.</span>}
+            {!channels.channels.length && <span className="mu" style={{ fontSize: 13 }}>No shared session is open. Pick one below.</span>}
             {channels.channels.map((c) => (
               <button key={c.key} className="row" style={{ background: 'var(--bg-2)', border: 0, padding: '8px 10px', textAlign: 'left' }} onClick={() => nav(`/real/${c.live ? 'live' : c.key}`)}>
-                <b style={{ flex: 1 }}>{c.name}</b><span className="chip">{c.viewers} watching</span><span className="chip">{c.live ? 'LIVE' : `${clock(c.t - c.from)} · ${c.speed}×`}</span>
+                <b style={{ flex: 1 }}>{c.name}</b><span className="chip">{c.viewers} connected</span><span className="chip">{c.live ? 'LIVE' : `${clock(c.t - c.from)} · ${c.speed}×`}</span>
               </button>
             ))}
           </div>
@@ -136,10 +140,22 @@ function Browser() {
 export function Channel({ channelKey }) {
   const { opened, error: openErr } = useRealChannel(channelKey);
   useTicker(4);
-  const { meta, state, rows, rc, feed, selected, select } = useReplay();
+  const { meta, state, rows, rc, feed, selected, select, key: ch } = useReplay();
   const role = useAuth((s) => s.user?.role);
   const toast = useToasts((s) => s.push);
+  const team = useUI((s) => s.realTeam);
+  const analysis = useRealAnalysis(opened ? ch : null);
+  const [lapTo, setLapTo] = useState('');
   const drivers = useMemo(() => new Map((meta?.drivers || []).map((d) => [d.n, d])), [meta]);
+  // focus the crew's lead car when the session opens
+  const ours = useMemo(() => teamDrivers(meta, team), [meta, team]);
+  const focused = useRef(null);
+  useEffect(() => {
+    if (!meta || !ours.length || focused.current === ch) return;
+    focused.current = ch;
+    const lead = rows.filter((r) => ours.some((d) => d.n === r.n)).sort((a, b) => a.pos - b.pos)[0];
+    if (lead) select(lead.n);
+  }, [meta, ours, ch, rows, select]);
 
   if (openErr) return <div className="card"><div className="empty"><b>Could not open this session</b>{openErr}<Link to="/real" className="btn sm" style={{ marginTop: 8 }}>Back to sessions</Link></div></div>;
   if (!opened || !meta || !state.loaded) {
@@ -150,8 +166,21 @@ export function Channel({ channelKey }) {
   const leaderLap = rows[0]?.lap || 0;
   const [flagText, flagCls] = FLAG[state.flag] || [state.flag || 'TRACK CLEAR', 'GREEN'];
   const canControl = !state.live;
+  const mock = meta.mock;
   const ctl = async (body) => {
-    try { await api(`/replay/${meta.key}/control`, { method: 'POST', body }); } catch (e) { toast({ kind: 'red', title: 'Replay', text: e.message }); }
+    try { await api(`/replay/${ch}/control`, { method: 'POST', body }); } catch (e) { toast({ kind: '', title: 'Playback', text: e.message }); }
+  };
+  // lap N starts when the leader completes lap N-1
+  const jump = (n) => {
+    if (!analysis || !n) return;
+    const ends = analysis.laps.filter((l) => l.lap === n - 1).map((l) => l.t);
+    const t = n <= 1 ? state.from : ends.length ? Math.min(...ends) - 3000 : null;
+    if (t == null) return toast({ kind: 'yel', title: 'No such lap', text: `This session has no lap ${n}` });
+    ctl({ action: 'seek', t: Math.max(0, t - state.from) });
+  };
+  const share = () => {
+    navigator.clipboard?.writeText(`${location.origin}/mock/${mock.id}`);
+    toast({ kind: 'cyan', title: 'Link copied', text: 'Anyone with the link joins this mock on the same clock', ms: 3500 });
   };
   const sel = drivers.get(selected) || drivers.get(rows[0]?.n);
   const w = state.weather;
@@ -160,8 +189,8 @@ export function Channel({ channelKey }) {
     <div className="stack">
       <div className="card carbon" style={{ borderTopRightRadius: 14 }}>
         <div className="row" style={{ padding: '12px 16px', gap: 18 }}>
-          <Link to="/real" className="chip">← Sessions</Link>
-          <span className="tag" style={{ background: state.live ? 'var(--red)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'Live feed' : 'Historical feed'} · OpenF1</span>
+          <Link to={mock ? '/' : '/real'} className="chip">← {mock ? 'Launcher' : 'Archive'}</Link>
+          <span className="tag" style={{ background: state.live ? 'var(--red)' : mock ? 'var(--cyan)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'Live feed' : mock ? 'Mock session' : 'Replay'} · OpenF1</span>
           <div><div className="lbl">{meta.circuit} · {meta.type}</div><b style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' }}>{meta.year} {meta.country}</b></div>
           <div className="kv"><small>{state.live ? 'Session time' : 'Clock'}</small><b className="mono">{clock(elapsed)} <span className="mu" style={{ fontSize: 13 }}>/ {clock(total)}</span></b></div>
           {/Race|Sprint$/.test(meta.type) && <div className="kv"><small>Leader lap</small><b>{leaderLap}</b></div>}
@@ -178,12 +207,25 @@ export function Channel({ channelKey }) {
               <>
                 <button className="btn sm" onClick={() => ctl({ action: state.playing ? 'pause' : 'play' })}>{state.playing ? 'Pause' : 'Play'}</button>
                 <div className="seg">{[1, 2, 4, 8, 16].map((s) => <button key={s} className={state.speed === s ? 'on' : ''} onClick={() => ctl({ action: 'speed', speed: s })}>{s}×</button>)}</div>
-                <button className="btn sm ghost" onClick={() => ctl({ action: 'restart' })}>Restart</button>
+                <button className="btn sm ghost" onClick={() => ctl({ action: 'restart' })}>{mock ? 'Back to start' : 'Restart'}</button>
+                {/Race|Sprint$/.test(meta.type) && (
+                  <form className="row" style={{ gap: 4 }} onSubmit={(e) => { e.preventDefault(); jump(Number(lapTo)); }}>
+                    <input className="input" aria-label="Jump to lap" placeholder="lap" inputMode="numeric" value={lapTo} onChange={(e) => setLapTo(e.target.value.replace(/\D/g, ''))} style={{ width: 56, height: 30 }} />
+                    <button className="btn sm ghost" disabled={!analysis || !lapTo}>Jump</button>
+                  </form>
+                )}
               </>
             )}
             <input aria-label="Session position" type="range" min="0" max={total} step="1000" value={Math.min(total, elapsed)} disabled={!canControl} style={{ flex: 1, minWidth: 160 }}
               onChange={(e) => canControl && ctl({ action: 'seek', t: Number(e.target.value) })} />
-            <span className="chip">{state.live ? 'following real time' : state.playing ? `playing ${state.speed}×` : 'paused'} · shared clock for everyone watching</span>
+            <span className="chip">{state.live ? 'following real time' : state.playing ? `playing ${state.speed}×` : 'paused'} · {mock ? "your crew's own clock" : 'shared clock for everyone in this session'}</span>
+          </div>
+          <div className="row" style={{ gap: 8, marginTop: 10 }}>
+            <TeamPicker meta={meta} />
+            {mock && <button className="btn sm" onClick={share}>Share with crew</button>}
+            {mock && <Link to="/strategy" className="btn sm red">Strategy and calls</Link>}
+            {mock && <Link to="/debrief" className="btn sm ghost">Debrief</Link>}
+            {!mock && !state.live && <span className="mu" style={{ fontSize: 12 }}>Want your own clock and a call log? Start a mock session of this race from the launcher.</span>}
           </div>
         </div>
       </div>
@@ -196,7 +238,7 @@ export function Channel({ channelKey }) {
               const d = drivers.get(r.n);
               if (!d) return null;
               return (
-                <div key={r.n} className={`tw ${r.n === sel?.n ? 'sel' : ''} ${i === 0 ? 'p1' : ''}`} style={{ '--tc': d.color, gridTemplateColumns: '26px 4px minmax(0,1fr) 80px 22px' }} onClick={() => select(r.n)} title={`${d.name} · ${d.team}`}>
+                <div key={r.n} className={`tw ${r.n === sel?.n ? 'sel' : ''} ${i === 0 ? 'p1' : ''}`} style={{ '--tc': d.color, gridTemplateColumns: '26px 4px minmax(0,1fr) 80px 22px', background: team && sameTeam(d.team, team) && r.n !== sel?.n ? 'rgba(56,216,255,.08)' : undefined }} onClick={() => select(r.n)} title={`${d.name} · ${d.team}`}>
                   <span className="p">{r.pos < 99 ? r.pos : '–'}</span>
                   <span className="tb" style={{ background: d.color }} />
                   <span className="c">{d.code}<small>{r.n}</small>{r.pits > 0 && <small style={{ color: 'var(--yel)' }}>{r.pits} PIT</small>}</span>
@@ -211,12 +253,13 @@ export function Channel({ channelKey }) {
 
         <div className="card mapcard"><RealTrack meta={meta} drivers={drivers} selected={sel?.n} onSelect={select} /></div>
 
-        <div className="rcol" style={{ gridTemplateRows: 'auto auto minmax(0,1fr)' }}>
+        <div className="rcol" style={{ gridTemplateRows: ours.length ? 'auto auto auto minmax(0,1fr)' : 'auto auto minmax(0,1fr)' }}>
           {sel && <DriverPanel d={sel} row={rows.find((r) => r.n === sel.n)} />}
           <div className="card">
             <div className="card-h"><b>Speed · throttle · brake</b><span className="chip">last 60 s</span></div>
-            <div style={{ height: 150, padding: '6px 10px' }}><TraceStrip n={sel?.n} color={sel?.color} /></div>
+            <div style={{ height: ours.length ? 110 : 150, padding: '6px 10px' }}><TraceStrip n={sel?.n} color={sel?.color} /></div>
           </div>
+          {ours.length > 0 && <TeamAlerts compact />}
           <div className="card" style={{ display: 'flex', flexDirection: 'column', minHeight: 200 }}>
             <div className="card-h"><b>Race control</b><span className="chip">{rc.length} messages</span></div>
             <ul className="feed" style={{ flex: 1 }}>

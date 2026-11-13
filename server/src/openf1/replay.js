@@ -1,4 +1,4 @@
-import { SessionSource, CHUNK_MS } from './source.js';
+import { SessionSource, pruneReplayCache } from './source.js';
 import { log } from '../lib/log.js';
 
 const COMPOUND = { SOFT: 'S', MEDIUM: 'M', HARD: 'H', INTERMEDIATE: 'I', WET: 'W' };
@@ -15,21 +15,26 @@ const LIVE_REFRESH_MS = 3000;
  *               followed a few seconds behind real time and recorded to MongoDB
  *               as it arrives, so it is replayable afterwards
  *
+ * A mock channel is a private copy of a historical session for one crew's
+ * rehearsal: its own id (`m-…`), its own clock, starts paused, never loops.
+ *
  * Output:
  *   replay:frame   5 Hz   [n, x, y, km/h, gear, throttle, brake, drs, rpm] per car
  *   replay:timing  2 Hz   standings + clock state
  *   replay:events  as they happen: race control, laps, pit stops, weather
  */
 export class ReplayChannel {
-  constructor({ key, live = false, emit, viewers }) {
+  constructor({ key, live = false, mock = null, emit, viewers }) {
     this.key = key;
     this.live = live;
+    this.mock = mock; // { id, startAt, team } for a crew's private rehearsal
+    this.id = mock ? `m-${mock.id}` : null;
     this.emitRaw = emit;
     this.viewers = viewers;
     this.source = new SessionSource(key, { live });
     this.playing = true;
     this.speed = 1;
-    this.loop = !live;
+    this.loop = !live && !mock;
     this.buffering = true;
     this.loaded = new Map(); // chunk index -> { frames, intervals, at }
     this.cars = new Map();
@@ -38,8 +43,10 @@ export class ReplayChannel {
     this.lastViewerAt = Date.now();
   }
 
-  room() { return `replay:${this.meta?.key ?? this.key}`; }
-  emit(ev, payload) { this.emitRaw(this.room(), ev, { k: this.meta?.key ?? this.key, ...payload }); }
+  /** channel id: the session key for shared channels, `m-…` for a mock */
+  ch() { return this.id ?? String(this.meta?.key ?? this.key); }
+  room() { return `replay:${this.ch()}`; }
+  emit(ev, payload) { this.emitRaw(this.room(), ev, { k: this.ch(), ...payload }); }
 
   async init() {
     this.meta = await this.source.loadMeta();
@@ -47,7 +54,8 @@ export class ReplayChannel {
     this.events = this.source.events;
     this.from = +this.meta.from;
     this.to = this.live ? Date.now() : +this.meta.to;
-    this.seek(this.live ? Date.now() - LIVE_DELAY_MS : this.from);
+    this.seek(this.live ? Date.now() - LIVE_DELAY_MS : this.mock?.startAt ?? this.from);
+    if (this.mock) this.playing = false;
     this.start();
     return this;
   }
@@ -221,6 +229,12 @@ export class ReplayChannel {
     }).sort((a, b) => a.pos - b.pos || (a.best ?? 1e9) - (b.best ?? 1e9));
   }
 
+  /** what the timing screen shows for one car right now (used to stamp a crew's calls) */
+  carNow(n) {
+    const row = this.standings().find((r) => r.n === n);
+    return row ? { pos: row.pos, lap: row.lap, tc: row.tc, ta: row.ta, gap: row.gap, pits: row.pits } : null;
+  }
+
   state() {
     return {
       loaded: true, key: this.meta.key, live: this.live, feed: this.live ? 'live' : 'historical', t: this.t, from: this.from, to: this.to,
@@ -230,7 +244,10 @@ export class ReplayChannel {
 
   snapshot() {
     const { drivers, track, name, circuit, country, year, type, key, complete } = this.meta;
-    return { meta: { key, name, circuit, country, year, type, drivers, track, complete, live: this.live }, state: this.state(), rows: this.standings(), rc: this.st.rc.slice(-20).reverse(), frame: this.frame() };
+    return {
+      meta: { key, ch: this.ch(), name, circuit, country, year, type, drivers, track, complete, live: this.live, mock: this.mock ? { id: this.mock.id, team: this.mock.team } : null },
+      state: this.state(), rows: this.standings(), rc: this.st.rc.slice(-20).reverse(), frame: { ...this.frame(), k: this.ch() }
+    };
   }
 
   control({ action, t, speed }) {
@@ -239,26 +256,64 @@ export class ReplayChannel {
     if (action === 'pause') this.playing = false;
     if (action === 'seek') this.seek(this.from + Math.max(0, Number(t) || 0));
     if (action === 'speed') this.speed = Math.max(0.25, Math.min(16, Number(speed) || 1));
-    if (action === 'restart') { this.seek(this.from); this.playing = true; }
+    if (action === 'restart') { this.seek(this.mock?.startAt ?? this.from); this.playing = !this.mock; }
     this.emit('replay:state', this.state());
+    this.onControl?.(this);
     return this.state();
   }
 }
 
 /**
  * Opens channels on demand (anyone can pick a session), shares one channel
- * between everyone watching the same session, and closes channels nobody has
- * watched for a few minutes.
+ * between everyone watching the same session, gives each mock session its own
+ * private channel, and closes channels nobody has watched for a few minutes.
+ * A mock's clock is saved (via `saveMock`) so the crew can come back to it.
  */
 export class ReplayManager {
-  constructor({ emit, viewers, maxChannels = 6, idleMs = 180_000 }) {
+  constructor({ emit, viewers, maxChannels = 8, idleMs = 180_000, saveMock = null, cacheBytes = 0 }) {
     this.emit = emit;
     this.viewers = viewers;
     this.maxChannels = maxChannels;
     this.idleMs = idleMs;
+    this.saveMock = saveMock;
+    this.cacheBytes = cacheBytes;
     this.channels = new Map();
     this.opening = new Map();
     this.timer = setInterval(() => this.reap(), 30_000);
+    if (cacheBytes) {
+      this.pruneTimer = setInterval(() => this.prune(), 10 * 60_000);
+      setTimeout(() => this.prune(), 60_000).unref?.();
+    }
+  }
+
+  prune() {
+    const keep = new Set(this.distinct().map((ch) => ch.meta?.key));
+    return pruneReplayCache({ maxBytes: this.cacheBytes, keep }).catch((e) => log.warn('replay cache prune:', e.message));
+  }
+
+  /** a crew's private channel for a mock session; reopened at its saved clock */
+  async openMock({ id, key, startAt, t, team }) {
+    const cid = `m-${id}`;
+    if (this.channels.has(cid)) return this.channels.get(cid);
+    if (this.opening.has(cid)) return this.opening.get(cid);
+    this.makeRoom();
+    const ch = new ReplayChannel({ key: Number(key), mock: { id, startAt: t ?? startAt, team }, emit: this.emit, viewers: this.viewers });
+    ch.onControl = (c) => this.saveMock?.(c);
+    const p = ch.init().then(() => {
+      if (startAt != null) ch.mock.startAt = startAt; // restart goes back to where the mock began
+      this.channels.set(cid, ch);
+      log.info(`mock channel open: ${ch.meta.name} (${cid})`);
+      return ch;
+    }).finally(() => this.opening.delete(cid));
+    this.opening.set(cid, p);
+    return p;
+  }
+
+  makeRoom() {
+    if (this.distinct().length >= this.maxChannels) {
+      this.reap(true);
+      if (this.distinct().length >= this.maxChannels) throw new Error('all replay channels are busy, try again in a few minutes');
+    }
   }
 
   get(key) { return this.channels.get(String(key)); }
@@ -267,10 +322,7 @@ export class ReplayManager {
     const id = live ? 'live' : String(key);
     if (this.channels.has(id)) return this.channels.get(id);
     if (this.opening.has(id)) return this.opening.get(id);
-    if (this.distinct().length >= this.maxChannels) {
-      this.reap(true);
-      if (this.distinct().length >= this.maxChannels) throw new Error('all replay channels are busy, try again in a few minutes');
-    }
+    this.makeRoom();
     const ch = new ReplayChannel({ key: live ? 'latest' : Number(key), live, emit: this.emit, viewers: this.viewers });
     const p = ch.init().then(() => {
       this.channels.set(id, ch);
@@ -288,7 +340,9 @@ export class ReplayManager {
     const now = Date.now();
     for (const ch of this.distinct()) {
       const idle = now - ch.lastViewerAt;
+      if (ch.mock && ch.playing) this.saveMock?.(ch);
       if (idle > this.idleMs || (force && idle > 20_000)) {
+        if (ch.mock) { ch.playing = false; this.saveMock?.(ch); }
         ch.stop();
         for (const [k, v] of this.channels) if (v === ch) this.channels.delete(k);
         log.info(`replay channel closed: ${ch.meta?.name}`);
@@ -296,9 +350,13 @@ export class ReplayManager {
     }
   }
 
+  /** shared channels only: mock sessions are private to the crew holding the link */
   list() {
-    return this.distinct().map((ch) => ({ key: ch.meta.key, name: ch.meta.name, live: ch.live, viewers: this.viewers(ch.room()), t: ch.t, from: ch.from, to: ch.to, playing: ch.playing, speed: ch.speed }));
+    return this.distinct().filter((ch) => !ch.mock).map((ch) => ({ key: ch.meta.key, name: ch.meta.name, live: ch.live, viewers: this.viewers(ch.room()), t: ch.t, from: ch.from, to: ch.to, playing: ch.playing, speed: ch.speed }));
   }
 
-  stop() { clearInterval(this.timer); for (const ch of this.distinct()) ch.stop(); }
+  stop() {
+    clearInterval(this.timer); clearInterval(this.pruneTimer);
+    for (const ch of this.distinct()) { if (ch.mock) this.saveMock?.(ch); ch.stop(); }
+  }
 }

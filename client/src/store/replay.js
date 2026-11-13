@@ -76,11 +76,13 @@ export const useReplay = create((set, get) => ({
   },
   snapshot(s) {
     if (!s?.meta) return set({ state: s?.state || { loaded: false } });
-    if (get().key != null && String(s.meta.key) !== get().key && !(get().key === 'live' && s.meta.live)) return;
+    const ch = String(s.meta.ch ?? s.meta.key); // channel id: session key, or m-… for a mock
+    if (get().key != null && ch !== get().key && !(get().key === 'live' && s.meta.live)) return;
     replayCars.clear(); replayTrace.clear();
-    if (s.frame) onReplayFrame({ ...s.frame, k: s.meta.key });
+    useReplay.setState({ key: ch });
+    if (s.frame) onReplayFrame({ ...s.frame, k: ch });
     const sel = get().selected;
-    set({ key: String(s.meta.key), meta: s.meta, state: s.state, rows: s.rows || [], rc: s.rc || [], feed: [], selected: sel && s.meta.drivers.some((d) => d.n === sel) ? sel : s.rows?.[0]?.n || null });
+    set({ key: ch, meta: s.meta, state: s.state, rows: s.rows || [], rc: s.rc || [], feed: [], selected: sel && s.meta.drivers.some((d) => d.n === sel) ? sel : s.rows?.[0]?.n || null });
   },
   mine(m) { return m?.k == null || String(m.k) === get().key; },
   setState(st) {

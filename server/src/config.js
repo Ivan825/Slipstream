@@ -22,6 +22,8 @@ export const config = {
   replaySession: num(process.env.REPLAY_SESSION, 9636),
   replayAutoImport: bool(process.env.REPLAY_AUTO_IMPORT, false),
   replayMinutes: num(process.env.REPLAY_MINUTES, 15),
+  // stored real-session data is capped; least recently used sessions are dropped (they re-download on demand)
+  replayCacheMb: num(process.env.REPLAY_CACHE_MB, 200),
   raceLaps: num(process.env.RACE_LAPS, 36),
   telemetryTtlMin: num(process.env.TELEMETRY_TTL_MIN, 30),
 

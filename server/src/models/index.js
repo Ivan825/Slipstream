@@ -128,7 +128,7 @@ export const PitStop = model('PitStop', PitStopSchema);
 const ReplaySessionSchema = new Schema({
   key: { type: Number, unique: true }, v: Number, name: String, year: Number, circuit: String, country: String, location: String, type: String,
   meeting: Number, from: Date, to: Date, drivers: [Schema.Types.Mixed], stints: [Schema.Types.Mixed], track: [[Number]],
-  complete: Boolean, chunks: [Number], chunkMs: Number, frames: Number, events: Number, importedAt: Date
+  complete: Boolean, chunks: [Number], chunkMs: Number, frames: Number, events: Number, importedAt: Date, lastUsed: Date
 }, { versionKey: false });
 export const ReplaySession = model('ReplaySession', ReplaySessionSchema);
 
@@ -141,3 +141,14 @@ export const ReplayChunk = model('ReplayChunk', ReplayChunkSchema);
 const ReplayEventSchema = new Schema({ s: Number, t: Date, type: String, data: Schema.Types.Mixed }, { versionKey: false });
 ReplayEventSchema.index({ s: 1, t: 1 });
 export const ReplayEvent = model('ReplayEvent', ReplayEventSchema);
+
+/* ---------- mock sessions: a crew rehearsing on a past session ----------
+ * Private clock (its own replay channel), the crew's team, and every strategy call
+ * they made with what the strategist advised at that moment. Debriefed against what
+ * really happened. Kept for 60 days after last use. */
+const MockSchema = new Schema({
+  _id: String, key: Number, name: String, team: String, from: Number, to: Number, startAt: Number, t: Number,
+  calls: [Schema.Types.Mixed], ended: Boolean, createdAt: Date, updatedAt: Date
+}, { versionKey: false });
+MockSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 60 * 86400 });
+export const Mock = model('Mock', MockSchema);
