@@ -1,5 +1,5 @@
 # Render blueprint: one web service runs the API, the sockets, the simulator and the dashboard.
-# Set MONGO_URI to a MongoDB Atlas connection string after the first deploy.
+# Full steps: docs/DEPLOY.md. You are asked for MONGO_URI, CLIENT_ORIGIN and (optionally) OPENF1_TOKEN.
 services:
   - type: web
     name: slipstream
@@ -23,9 +23,10 @@ services:
         value: "true"
       - key: EMBED_SIMULATOR
         value: "true"
+      # your Vercel URL (and this Render URL), comma separated; set after the first deploy
       - key: CLIENT_ORIGIN
-        value: https://slipstream.onrender.com
-      # keeps the raw telemetry of a free-tier Atlas cluster (512 MB) well under its limit
+        sync: false
+      # scripted race storyline so the hosted demo always has something happening
       - key: DEMO_DIRECTOR
         value: "true"
       # pre-download the first minutes of a real session on first boot (any other session streams on demand)
@@ -36,5 +37,6 @@ services:
       # optional: OpenF1 subscription key for the live feed
       - key: OPENF1_TOKEN
         sync: false
+      # keeps the raw telemetry of a free-tier Atlas cluster (512 MB) well under its limit
       - key: TELEMETRY_TTL_MIN
         value: "10"
