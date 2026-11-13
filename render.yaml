@@ -11,6 +11,16 @@ services:
     buildCommand: npm ci --include=dev && VITE_API_URL= npm run build
     startCommand: npm start
     healthCheckPath: /api/health
+    # only code changes redeploy (docs/README edits don't restart the live session)
+    buildFilter:
+      paths:
+        - server/**
+        - shared/**
+        - simulator/**
+        - client/**
+        - package.json
+        - package-lock.json
+        - render.yaml
     envVars:
       - key: NODE_VERSION
         value: "22"
