@@ -1,9 +1,35 @@
+import { promisify } from 'node:util';
+import zlib from 'node:zlib';
 import { openf1 } from './client.js';
-import { ReplaySession, ReplayFrame, ReplayEvent } from '../models/index.js';
+import { ReplaySession, ReplayChunk, ReplayEvent } from '../models/index.js';
 import { log } from '../lib/log.js';
 
 export const CHUNK_MS = 120_000;
-const VERSION = 2;
+const VERSION = 3;
+const deflate = promisify(zlib.deflate), inflate = promisify(zlib.inflate);
+const COLS = 10; // dt, n, x, y, v, g, thr, brk, rpm, drs
+
+/** pack frames as Int32 columns and deflate them on the thread pool, so the event loop stays free */
+async function pack(frames, a) {
+  const arr = new Int32Array(frames.length * COLS);
+  frames.forEach((f, k) => {
+    const o = k * COLS;
+    arr[o] = f.t - a; arr[o + 1] = f.n; arr[o + 2] = Math.round(f.x); arr[o + 3] = Math.round(f.y); arr[o + 4] = f.v | 0;
+    arr[o + 5] = f.g | 0; arr[o + 6] = f.thr | 0; arr[o + 7] = f.brk | 0; arr[o + 8] = f.rpm | 0; arr[o + 9] = f.drs | 0;
+  });
+  return deflate(Buffer.from(arr.buffer), { level: 6 });
+}
+async function unpack(buf, a) {
+  const bytes = buf instanceof Uint8Array ? buf : buf.read(0, buf.length()); // Buffer or BSON Binary
+  let raw = await inflate(bytes);
+  if (raw.byteOffset % 4) raw = Buffer.from(raw); // Int32Array views need 4-byte alignment
+  const arr = new Int32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4);
+  const frames = new Array(arr.length / COLS);
+  for (let k = 0, o = 0; o < arr.length; k++, o += COLS) {
+    frames[k] = { n: arr[o + 1], t: a + arr[o], x: arr[o + 2], y: arr[o + 3], v: arr[o + 4], g: arr[o + 5], thr: arr[o + 6], brk: arr[o + 7], rpm: arr[o + 8], drs: arr[o + 9] };
+  }
+  return frames;
+}
 const iso = (ms) => new Date(ms).toISOString().replace('Z', '');
 const ts = (s) => (s ? Date.parse(/Z|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z') : null);
 
@@ -94,12 +120,13 @@ export class SessionSource {
     // keep chunks already recorded (e.g. while this session was live); drop data from older formats
     const existing = await ReplaySession.findOne({ key }, { v: 1, chunks: 1 }).lean();
     if (existing && existing.v !== VERSION) {
-      await ReplayFrame.deleteMany({ s: key });
+      await ReplayChunk.deleteMany({ s: key });
       await ReplayEvent.deleteMany({ s: key });
     }
     this.chunks = new Set(existing?.v === VERSION ? existing.chunks || [] : []);
     await ReplayEvent.deleteMany({ s: key, type: { $ne: 'interval' } });
-    if (events.length) await ReplayEvent.insertMany(events.map((e) => ({ s: key, t: new Date(e.t), type: e.type, data: e.data })), { ordered: false });
+    // native driver: skips per-document casting, which is slow on a small CPU
+    if (events.length) await ReplayEvent.collection.insertMany(events.map((e) => ({ s: key, t: new Date(e.t), type: e.type, data: e.data })), { ordered: false });
     await ReplaySession.findOneAndUpdate({ key }, { ...this.meta, chunks: [...this.chunks] }, { upsert: true });
     log.info(`openf1: ${this.meta.name} ready (${drivers.length} drivers, ${events.length} events, ${Math.round((to - from) / 60000)} min)`);
     return this.meta;
@@ -120,11 +147,13 @@ export class SessionSource {
     const a = +this.meta.from + i * CHUNK_MS, b = a + CHUNK_MS;
     const key = this.meta.key;
     if (this.chunks.has(i)) {
-      const [frames, intervals] = await Promise.all([
-        ReplayFrame.find({ s: key, t: { $gte: new Date(a), $lt: new Date(b) } }, { _id: 0, s: 0 }).sort({ t: 1 }).lean(),
-        ReplayEvent.find({ s: key, type: 'interval', t: { $gte: new Date(a), $lt: new Date(b) } }, { _id: 0, s: 0 }).sort({ t: 1 }).lean()
-      ]);
-      return { i, frames: frames.map((f) => ({ ...f, t: +f.t })), intervals: intervals.map((e) => ({ t: +e.t, type: 'interval', data: e.data })) };
+      const doc = await ReplayChunk.collection.findOne({ s: key, i });
+      if (doc) {
+        const frames = await unpack(doc.data, a);
+        const intervals = (doc.ints || []).map(([dt, n, gap, int]) => ({ t: a + dt, type: 'interval', data: { n, gap, int } }));
+        return { i, frames, intervals };
+      }
+      this.chunks.delete(i);
     }
     const range = { session_key: key, 'date>=': iso(a), 'date<': iso(b) };
     const car = await openf1('car_data', range);
@@ -163,8 +192,9 @@ export class SessionSource {
     // record every settled chunk, live or historical, so a session is downloaded once
     // and a live session becomes replayable after it ends
     if (settled && frames.length) {
-      await ReplayFrame.insertMany(frames.map((f) => ({ ...f, s: key, t: new Date(f.t) })), { ordered: false }).catch(() => {});
-      if (intervals.length) await ReplayEvent.insertMany(intervals.map((e) => ({ s: key, t: new Date(e.t), type: 'interval', data: e.data })), { ordered: false }).catch(() => {});
+      const data = await pack(frames, a);
+      const ints = intervals.map((e) => [e.t - a, e.data.n, e.data.gap ?? null, e.data.int ?? null]);
+      await ReplayChunk.collection.replaceOne({ s: key, i }, { s: key, i, count: frames.length, data, ints }, { upsert: true }).catch((e) => log.warn(`chunk ${i} save:`, e.message));
       this.chunks.add(i);
       await ReplaySession.updateOne({ key }, { $addToSet: { chunks: i } }).catch(() => {});
     }

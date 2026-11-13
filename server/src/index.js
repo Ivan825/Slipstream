@@ -9,7 +9,7 @@ import { attachIngest } from './ingest/namespace.js';
 import { attachLive } from './live/namespace.js';
 import { Broadcaster } from './live/broadcaster.js';
 import { ensureDemoUsers } from './auth.js';
-import { Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayFrame, ReplayEvent, ReplaySession } from './models/index.js';
+import { Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayChunk, ReplayEvent, ReplaySession } from './models/index.js';
 import { ReplayManager } from './openf1/replay.js';
 import { importSession } from './openf1/importer.js';
 
@@ -19,8 +19,10 @@ async function main() {
   }
   mongoose.set('strictQuery', true);
   await mongoose.connect(config.mongoUri, { maxPoolSize: 20 });
-  await Promise.all([Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayFrame, ReplayEvent, ReplaySession].map((m) => m.syncIndexes().catch((e) => log.warn(`index sync ${m.modelName}:`, e.message))));
+  await Promise.all([Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayChunk, ReplayEvent, ReplaySession].map((m) => m.syncIndexes().catch((e) => log.warn(`index sync ${m.modelName}:`, e.message))));
   log.info('connected to MongoDB');
+  // real-session car data used to be one document per sample; it is now packed per chunk
+  await mongoose.connection.db.dropCollection('replayframes').then(() => log.info('dropped old replayframes collection')).catch(() => {});
   // sessions left running by a previous process can never finish: close them
   const stale = await Session.updateMany({ status: { $in: ['running', 'paused'] } }, { $set: { status: 'finished', endedAt: new Date() } });
   if (stale.modifiedCount) log.info(`closed ${stale.modifiedCount} stale session(s)`);

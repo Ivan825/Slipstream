@@ -132,11 +132,11 @@ const ReplaySessionSchema = new Schema({
 }, { versionKey: false });
 export const ReplaySession = model('ReplaySession', ReplaySessionSchema);
 
-const ReplayFrameSchema = new Schema({
-  s: Number, n: Number, t: Date, x: Number, y: Number, v: Number, g: Number, thr: Number, brk: Number, rpm: Number, drs: Number
-}, { versionKey: false });
-ReplayFrameSchema.index({ s: 1, t: 1 });
-export const ReplayFrame = model('ReplayFrame', ReplayFrameSchema);
+// One 2-minute chunk of car data for a real session: every sample of every car,
+// packed as Int32 columns and deflated (about 100 KB instead of ~9,000 documents).
+const ReplayChunkSchema = new Schema({ s: Number, i: Number, count: Number, data: Buffer, ints: Schema.Types.Mixed }, { versionKey: false });
+ReplayChunkSchema.index({ s: 1, i: 1 }, { unique: true });
+export const ReplayChunk = model('ReplayChunk', ReplayChunkSchema);
 
 const ReplayEventSchema = new Schema({ s: Number, t: Date, type: String, data: Schema.Types.Mixed }, { versionKey: false });
 ReplayEventSchema.index({ s: 1, t: 1 });

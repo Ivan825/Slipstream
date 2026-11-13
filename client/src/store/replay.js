@@ -5,18 +5,39 @@ export const replayCars = new Map(); // n -> { x, y, px, py, t, pt, v, g, thr, b
 export const replayTrace = new Map(); // n -> [{t, v, thr, brk, g, rpm, drs}] rolling ~120 s
 export const replayClock = { t: 0, at: 0, speed: 1, playing: true };
 
+/*
+ * Smooth playback. Frames arrive at ~5 Hz with network and server jitter, so
+ * cars are not drawn at the latest frame. Each car keeps a short buffer of
+ * timestamped samples, a local estimate of the session clock follows the
+ * server's, and the map draws RENDER_DELAY_MS behind it, interpolating between
+ * the two samples either side. A late packet then changes nothing on screen.
+ */
+const RENDER_DELAY_MS = 1000;
+const clk = { t: 0, at: 0, rate: 1 };
+const estimate = (now) => clk.t + (now - clk.at) * clk.rate;
+
 export function onReplayFrame(f) {
   if (f.k != null && useReplay.getState().key != null && String(f.k) !== String(useReplay.getState().key)) return;
   const now = performance.now();
+  const st = useReplay.getState().state || {};
+  const rate = st.playing === false || st.buffering ? 0 : (st.speed || 1);
+  const err = f.t - estimate(now);
+  // follow the server clock gently; snap on seeks, pauses and big stalls
+  clk.t = !clk.at || rate === 0 || clk.rate === 0 || Math.abs(err) > 2500 * Math.max(1, rate) ? f.t : estimate(now) + err * 0.08;
+  clk.at = now; clk.rate = rate;
   replayClock.t = f.t; replayClock.at = now;
   for (const [n, x, y, v, g, thr, brk, drs, rpm] of f.cars) {
-    const c = replayCars.get(n);
-    if (c) { c.px = c.dx ?? x; c.py = c.dy ?? y; c.pt = now; Object.assign(c, { x, y, t: now + 200, v, g, thr, brk, drs, rpm }); }
-    else replayCars.set(n, { x, y, px: x, py: y, t: now, pt: now - 200, v, g, thr, brk, drs, rpm });
+    let c = replayCars.get(n);
+    if (!c) { c = { buf: [] }; replayCars.set(n, c); }
+    Object.assign(c, { x, y, v, g, thr, brk, drs, rpm });
+    const last = c.buf[c.buf.length - 1];
+    if (last && f.t < last.t - 1) c.buf.length = 0; // seek or loop
+    if (!last || f.t > last.t) c.buf.push({ t: f.t, x, y });
+    if (c.buf.length > 40) c.buf.splice(0, c.buf.length - 40);
     let tr = replayTrace.get(n);
     if (!tr) { tr = []; replayTrace.set(n, tr); }
     if (!tr.length || f.t > tr[tr.length - 1].t) tr.push({ t: f.t, v, thr, brk, g, rpm, drs });
-    else if (f.t < tr[tr.length - 1].t) tr.length = 0; // seek or loop
+    else if (f.t < tr[tr.length - 1].t) tr.length = 0;
     while (tr.length && f.t - tr[0].t > 120_000) tr.shift();
   }
 }
@@ -24,11 +45,21 @@ export function onReplayFrame(f) {
 /** interpolated position for drawing at 60 fps */
 export function replayPos(n, now = performance.now()) {
   const c = replayCars.get(n);
-  if (!c) return null;
-  const span = c.t - c.pt;
-  const a = span > 0 ? Math.min(1.2, Math.max(0, (now - c.pt) / span)) : 1;
-  c.dx = c.px + (c.x - c.px) * a; c.dy = c.py + (c.y - c.py) * a;
-  return { x: c.dx, y: c.dy };
+  if (!c?.buf?.length) return null;
+  const b = c.buf;
+  const rt = estimate(now) - RENDER_DELAY_MS * Math.max(clk.rate, 0.25);
+  let p;
+  if (rt <= b[0].t) p = b[0];
+  else if (rt >= b[b.length - 1].t) p = b[b.length - 1];
+  else {
+    let i = b.length - 1;
+    while (i > 0 && b[i - 1].t > rt) i--;
+    const a = b[i - 1], z = b[i];
+    const k = (rt - a.t) / ((z.t - a.t) || 1);
+    p = { x: a.x + (z.x - a.x) * k, y: a.y + (z.y - a.y) * k };
+  }
+  c.dx = p.x; c.dy = p.y;
+  return { x: p.x, y: p.y };
 }
 
 export const useReplay = create((set, get) => ({

@@ -9,6 +9,14 @@ import { useUI } from '../store/stores.js';
  * Used by the shell (so every page follows the chosen real session) and by the
  * Real Data channel view. Opening is idempotent on the server.
  */
+let pending = null; // { key, p, at }: one open request shared by every caller
+const openOnce = (key) => {
+  if (pending && pending.key === key && Date.now() - pending.at < 10_000) return pending.p;
+  const p = api('/replay/open', { method: 'POST', body: { key: key === 'live' ? 'live' : Number(key) } });
+  pending = { key, p, at: Date.now() };
+  return p;
+};
+
 export function useRealChannel(key) {
   const [opened, setOpened] = useState(null);
   const [error, setError] = useState(null);
@@ -18,7 +26,7 @@ export function useRealChannel(key) {
     setError(null);
     const cur = useReplay.getState().key;
     if (cur !== String(key) && !(key === 'live' && useReplay.getState().meta?.live)) useReplay.getState().open(key);
-    api('/replay/open', { method: 'POST', body: { key: key === 'live' ? 'live' : Number(key) } })
+    openOnce(String(key))
       .then((snap) => {
         if (!alive) return;
         useReplay.getState().snapshot(snap);
