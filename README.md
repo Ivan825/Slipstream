@@ -198,6 +198,9 @@ Idle channels close themselves.
     <td width="50%"><img src="docs/images/practice.png" alt="Practice: classification by best lap with cars in the garage and pit lane, and the run monitor tagging out and push laps"><br><sub>Practice: cars run programmes from the garage, and the run monitor tags each lap.</sub></td>
   </tr>
   <tr>
+    <td colspan="2"><img src="docs/images/real-sessions.png" alt="Session browser: every Formula 1 session of the season with the live-feed card, channels being watched and sessions stored in MongoDB"><br><sub>Pick any session since 2023; the live feed lights up with an OpenF1 key.</sub></td>
+  </tr>
+  <tr>
     <td colspan="2"><img src="docs/images/real-data.png" alt="Real data replay of the 2024 Brazilian Grand Prix: live timing with real drivers on intermediates, the Interlagos circuit drawn from car coordinates, George Russell's live telemetry and the race-control message feed"><br><sub>Real data: the full wet 2024 Brazilian GP fed through the historical feed on a shared clock, with live timing, every car on the circuit, driver telemetry and race-control messages.</sub></td>
   </tr>
   <tr>
