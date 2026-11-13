@@ -19,6 +19,9 @@ async function main() {
   await mongoose.connect(config.mongoUri, { maxPoolSize: 20 });
   await Promise.all([Telemetry, Lap, Alert, Session, Command, User].map((m) => m.syncIndexes().catch((e) => log.warn(`index sync ${m.modelName}:`, e.message))));
   log.info('connected to MongoDB');
+  // sessions left running by a previous process can never finish: close them
+  const stale = await Session.updateMany({ status: { $in: ['running', 'paused'] } }, { $set: { status: 'finished', endedAt: new Date() } });
+  if (stale.modifiedCount) log.info(`closed ${stale.modifiedCount} stale session(s)`);
   await ensureDemoUsers();
 
   const hub = new Hub();
