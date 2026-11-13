@@ -1,0 +1,2 @@
+body { margin: 0; background: #15151e; color: #fff; font-family: 'Titillium Web', system-ui, sans-serif; }
+.boot { display: grid; place-items: center; height: 100vh; font-weight: 900; font-style: italic; font-size: 48px; }

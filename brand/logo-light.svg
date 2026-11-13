@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="96" viewBox="0 0 560 96" role="img" aria-label="Slipstream">
+  <g fill="#e10600">
+    <path d="M30 18h62l-12 15H18z"/>
+    <path d="M20 41h52l-12 15H8z" opacity=".85"/>
+    <path d="M10 64h34l-12 15H-2z" opacity=".7"/>
+  </g>
+  <text x="104" y="70" font-family="'Titillium Web','Arial Black','Helvetica Neue',Arial,sans-serif" font-weight="900" font-style="italic" font-size="60" letter-spacing="1" fill="#15151e">SLIPSTREAM</text>
+</svg>

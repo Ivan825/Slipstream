@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Slipstream">
+  <rect width="64" height="64" rx="12" fill="#15151e"/>
+  <g fill="#e10600">
+    <path d="M24 14h32l-7 9H17z"/>
+    <path d="M18 28h28l-7 9H11z" opacity=".85"/>
+    <path d="M12 42h18l-7 9H5z" opacity=".7"/>
+  </g>
+</svg>
