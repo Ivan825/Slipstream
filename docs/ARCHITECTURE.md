@@ -149,6 +149,24 @@ The cursor is read in the same event-loop turn as the room join. Every frame bro
 
 The ghost lap works the same way: the best lap's 25 m trace is read from `laps`, and the live lap's time-at-distance is built from the merged buffer.
 
+## Real-session replay (OpenF1)
+
+```mermaid
+flowchart LR
+  OF[OpenF1 REST<br/>car_data · location · laps · position<br/>intervals · race_control · weather · pit · stints] -->|importer, rate-limited| DB[(MongoDB<br/>ReplaySession · ReplayFrame · ReplayEvent)]
+  DB -->|load once| RE[Replay engine<br/>shared clock · seek · speed]
+  RE -->|replay:frame 5 Hz · volatile| ROOM[/live room: replay/]
+  RE -->|replay:timing 2 Hz| ROOM
+  RE -->|replay:events as they happen| ROOM
+  ROOM --> UI[Real Data page]
+```
+
+**Import.** The importer fetches a window of a real session, 15 minutes by default (about 60,000 frames and 6,000 events). It merges each driver's car data (about 3.7 Hz) with the nearest location sample, and stores everything time-stamped.
+
+**Playback.** The engine keeps per-driver frames in memory and binary-searches them for the clock time, interpolating x/y. It applies events in order to keep standings: position, gap, interval, laps, sectors, pit count, the tyre from the stints, the flag and the weather.
+
+**Seeking** resets that state and re-applies every event up to the new time, so a viewer who joins mid-session gets an exact snapshot in the subscribe acknowledgement.
+
 ## Data model
 
 ```mermaid

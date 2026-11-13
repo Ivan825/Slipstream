@@ -26,6 +26,7 @@ services:
       SERVE_CLIENT: "true"
       EMBED_SIMULATOR: "true"
       DEMO_DIRECTOR: "true"
+      REPLAY_AUTO_IMPORT: "true"
 
 volumes:
   mongo-data:

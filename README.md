@@ -101,6 +101,8 @@ Slipstream is a working pit wall for a simulated race weekend (practice, knockou
 - It produces frames at 20 Hz and sends them in 100 ms batches. Each batch is acknowledged.
 - The simulator deliberately duplicates about 0.4% of frames and reorders another 0.4%, so the dedupe and reorder logic is always exercised.
 
+**Real recorded data** comes from OpenF1. `npm run openf1:import -w server -- --session <session_key> --minutes 15` imports any session from 2023 onwards; see [Real data](#what-you-get).
+
 **Real devices** can push the same frames over plain HTTP: `POST /api/ingest` with an `x-api-key` header. [`examples/http-source.mjs`](examples/http-source.mjs) is a 50-line source that does exactly that.
 
 Every frame identifies its source, sequence number and timestamp:
@@ -143,6 +145,16 @@ Every frame identifies its source, sequence number and timestamp:
 
 [The engineering reference →](docs/RACE_ENGINEERING.md)
 
+**Real data, replayed live.** A **Real Data** page replays a real Grand Prix (by default the first 15 minutes of the wet 2024 Brazilian GP) from [OpenF1](https://openf1.org), with real drivers, teams and colours. The importer stores per-driver car data (speed, RPM, gear, throttle, brake, DRS) merged with on-track coordinates, plus laps, positions, intervals, race-control messages, weather and pit stops, in MongoDB. A replay engine plays it back on one shared clock, like a broadcast, through a Socket.IO room:
+
+- positions interpolated at 5 Hz;
+- live timing at 2 Hz;
+- flags and race-control messages as they happen.
+
+Every viewer sees the same moment. Race control can pause it, scrub through it or play it at up to 16×.
+
+**A demo director.** An optional scripted storyline plays out during the race through the normal race-control path, so a dashboard left open always has something happening: overheating, rain, a puncture, a safety car, brake fade, a VSC.
+
 **Alerts that stay in sync.** Alerts are stored, sent only to the team concerned and to race control, and rate-limited per car. Acknowledging one in one window clears it in every window.
 
 **Race control.**
@@ -171,6 +183,9 @@ Every frame identifies its source, sequence number and timestamp:
   <tr>
     <td width="50%"><img src="docs/images/race-history.png" alt="Race history chart of gap to the winner's average pace per lap for all twenty cars"><br><sub>Race history chart and lap chart.</sub></td>
     <td width="50%"><img src="docs/images/pace.png" alt="Lap-time scatter coloured by compound, team pace box plots and consistency table"><br><sub>Lap times by compound, team pace ranking and consistency.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/real-data.png" alt="Real data replay of the 2024 Brazilian Grand Prix: live timing with real drivers on intermediates, the Interlagos circuit drawn from car coordinates, George Russell's live telemetry and the race-control message feed"><br><sub>Real data: the wet 2024 Brazilian GP replayed from OpenF1, with live timing, every car on the circuit, live driver telemetry and race-control messages.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/images/race-control.png" alt="Race control: session start for practice, qualifying and race, track status, stream rate and burst, weather scheduling, incident injection, audit log"><br><sub>Race control: sessions, flags, weather, incidents and the stream rate.</sub></td>
@@ -268,7 +283,8 @@ Working end to end on one machine and in Docker:
 - anomaly detection and the strategy engine;
 - the analysis API;
 - the REST and live namespaces;
-- every dashboard page.
+- every dashboard page;
+- the real-data replay from OpenF1.
 
 **What's tested, and how:**
 
@@ -287,9 +303,9 @@ Working end to end on one machine and in Docker:
 
 ## Credits
 
-Built with [Express](https://expressjs.com/), [Socket.IO](https://socket.io/), [Mongoose](https://mongoosejs.com/), [zod](https://zod.dev/), [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken), [bcryptjs](https://github.com/dcodeIO/bcrypt.js), [helmet](https://helmetjs.github.io/), [express-rate-limit](https://github.com/express-rate-limit/express-rate-limit), [cors](https://github.com/expressjs/cors), [compression](https://github.com/expressjs/compression), [React](https://react.dev/), [React Router](https://reactrouter.com/), [Vite](https://vitejs.dev/), [Zustand](https://github.com/pmndrs/zustand), [Framer Motion](https://www.framer.com/motion/) and [uPlot](https://github.com/leeoniya/uPlot), all MIT licensed. Fonts are [Titillium Web](https://fonts.google.com/specimen/Titillium+Web) and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) (SIL Open Font License).
+Built with [Express](https://expressjs.com/), [Socket.IO](https://socket.io/), [Mongoose](https://mongoosejs.com/), [zod](https://zod.dev/), [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken), [bcryptjs](https://github.com/dcodeIO/bcrypt.js), [helmet](https://helmetjs.github.io/), [express-rate-limit](https://github.com/express-rate-limit/express-rate-limit), [cors](https://github.com/expressjs/cors), [compression](https://github.com/expressjs/compression), [React](https://react.dev/), [React Router](https://reactrouter.com/), [Vite](https://vitejs.dev/), [Zustand](https://github.com/pmndrs/zustand), [Framer Motion](https://www.framer.com/motion/) and [uPlot](https://github.com/leeoniya/uPlot), all MIT licensed. Real session data comes from [OpenF1](https://openf1.org), an unofficial open API (free historical data, for non-commercial use). Slipstream isn't associated with Formula 1 companies, and F1, FORMULA 1 and related marks belong to their owners. Fonts are [Titillium Web](https://fonts.google.com/specimen/Titillium+Web) and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) (SIL Open Font License).
 
-The circuit is a Catmull–Rom spline. Anomaly baselines use exponentially weighted moving averages. Rate limiting is a token bucket. The analysis views follow the conventions of professional motorsport data systems and official timing documents, as described in [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md). Team, driver and circuit names are fictional and not affiliated with any racing series. All telemetry is simulated.
+The circuit is a Catmull–Rom spline. Anomaly baselines use exponentially weighted moving averages. Rate limiting is a token bucket. The analysis views follow the conventions of professional motorsport data systems and official timing documents, as described in [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md). In the simulated weekend, team, driver and circuit names are fictional. The Real Data page shows real, recorded session data from OpenF1.
 
 ## Licence
 
