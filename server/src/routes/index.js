@@ -21,7 +21,7 @@ export function apiRouter(hub) {
   const r = Router();
 
   /* ---------- auth ---------- */
-  const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'too many login attempts, try again in a few minutes' } });
+  const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, skipSuccessfulRequests: true, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'too many login attempts, try again in a few minutes' } });
   r.post('/auth/login', loginLimiter, wrap(async (req, res) => {
     const body = parse(z.object({ username: z.string().min(1).max(40), password: z.string().min(1).max(100) }), req.body, res);
     if (!body) return;

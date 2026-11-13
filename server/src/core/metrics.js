@@ -38,8 +38,12 @@ export class Metrics {
   inc(key, n = 1) { this.c[key] += n; }
 
   tick() {
+    // normalise by the real interval: under load the 1 s timer can fire late
+    const now = performance.now();
+    const secs = this.lastTick ? Math.max(0.2, (now - this.lastTick) / 1000) : 1;
+    this.lastTick = now;
     const r = {};
-    for (const k of Object.keys(this.c)) r[k] = this.c[k] - (this.prev[k] || 0);
+    for (const k of Object.keys(this.c)) r[k] = Math.round((this.c[k] - (this.prev[k] || 0)) / secs);
     this.prev = { ...this.c };
     this.rates = r;
     const point = {
