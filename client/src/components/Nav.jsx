@@ -30,6 +30,7 @@ export default function Nav() {
         {role !== 'viewer' && <NavLink to={`/car/${defaultCar(user)}`}>Telemetry</NavLink>}
         {role !== 'viewer' && <NavLink to="/strategy">Strategy</NavLink>}
         <NavLink to="/analysis">Analysis</NavLink>
+        <NavLink to="/real">Real Data</NavLink>
         {role === 'race_control' && <NavLink to="/control">Race Control</NavLink>}
         <NavLink to="/systems">Systems</NavLink>
       </nav>

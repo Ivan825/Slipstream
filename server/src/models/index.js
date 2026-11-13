@@ -123,3 +123,21 @@ const PitStopSchema = new Schema({
 }, { versionKey: false });
 PitStopSchema.index({ sessionId: 1, carId: 1, lap: 1 });
 export const PitStop = model('PitStop', PitStopSchema);
+
+/* ---------- real-session replay (OpenF1) ---------- */
+const ReplaySessionSchema = new Schema({
+  key: { type: Number, unique: true }, name: String, year: Number, circuit: String, country: String, location: String, type: String,
+  from: Date, to: Date, drivers: [Schema.Types.Mixed], stints: [Schema.Types.Mixed], track: [[Number]],
+  frames: Number, events: Number, importedAt: Date
+}, { versionKey: false });
+export const ReplaySession = model('ReplaySession', ReplaySessionSchema);
+
+const ReplayFrameSchema = new Schema({
+  s: Number, n: Number, t: Date, x: Number, y: Number, v: Number, g: Number, thr: Number, brk: Number, rpm: Number, drs: Number
+}, { versionKey: false });
+ReplayFrameSchema.index({ s: 1, t: 1 });
+export const ReplayFrame = model('ReplayFrame', ReplayFrameSchema);
+
+const ReplayEventSchema = new Schema({ s: Number, t: Date, type: String, data: Schema.Types.Mixed }, { versionKey: false });
+ReplayEventSchema.index({ s: 1, t: 1 });
+export const ReplayEvent = model('ReplayEvent', ReplayEventSchema);

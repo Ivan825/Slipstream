@@ -89,6 +89,7 @@ function Palette() {
       { label: 'Pit wall', go: '/', hint: 'page' },
       { label: 'Strategy', go: '/strategy', hint: 'page', need: 'eng' },
       { label: 'Analysis', go: '/analysis', hint: 'page' },
+      { label: 'Real data replay (OpenF1)', go: '/real', hint: 'page' },
       { label: 'Race control', go: '/control', hint: 'page', need: 'rc' },
       { label: 'Systems', go: '/systems', hint: 'page' }
     ].filter((p) => !p.need || (p.need === 'rc' ? role === 'race_control' : role !== 'viewer'));

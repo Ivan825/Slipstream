@@ -15,6 +15,7 @@ import { NS, EV, decodeRaceRow, CARS, getTrack, formatLapTime, CAR_BY_ID } from 
 import { API_URL, api } from './api.js';
 import { useSession, useTiming, useAlerts, useStrategy, useMetrics, useLaps, useToasts, useUI } from '../store/stores.js';
 import { beep } from './sound.js';
+import { useReplay, onReplayFrame } from '../store/replay.js';
 
 const TRACK = getTrack();
 const L = TRACK.L;
@@ -154,6 +155,7 @@ function emitSubscribe(rooms) {
     if (ack.strategy) for (const s of Object.values(ack.strategy)) useStrategy.getState().put(s);
     if (ack.session) useSession.getState().set({ session: ack.session });
     for (const [carId, cursor] of Object.entries(ack.cursors || {})) loadHistory(carId, cursor);
+    if (ack.replay) useReplay.getState().snapshot(ack.replay);
   });
 }
 
@@ -196,6 +198,13 @@ export function connectLive(token) {
       useToasts.getState().push({ kind: 'cyan', title: `Team radio · ${c.carId}`, text: `${what} (${c.by})` });
     }
   });
+  // real-session replay
+  socket.on('replay:frame', onReplayFrame);
+  socket.on('replay:timing', (m) => useReplay.getState().timing(m));
+  socket.on('replay:events', (evs) => useReplay.getState().events(evs));
+  socket.on('replay:state', (st) => useReplay.getState().setState(st));
+  socket.on('replay:reload', () => api('/replay/state').then((snap) => useReplay.getState().snapshot(snap)).catch(() => {}));
+
   // round-trip latency probe
   clearInterval(connectLive.ping);
   connectLive.ping = setInterval(() => {

@@ -13,6 +13,7 @@ import Strategy from './pages/Strategy.jsx';
 import Analysis from './pages/Analysis.jsx';
 import RaceControl from './pages/RaceControl.jsx';
 import Systems from './pages/Systems.jsx';
+import Replay from './pages/Replay.jsx';
 
 function Page({ children }) {
   return (
@@ -50,6 +51,7 @@ function Shell({ role, location }) {
           <Route path="/analysis" element={<Page><Analysis /></Page>} />
           <Route path="/control" element={role === 'race_control' ? <Page><RaceControl /></Page> : <Navigate to="/" />} />
           <Route path="/systems" element={<Page><Systems /></Page>} />
+          <Route path="/real" element={<Page><Replay /></Page>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AnimatePresence>

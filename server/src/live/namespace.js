@@ -36,13 +36,17 @@ export function attachLive(io, hub, broadcaster) {
     socket.on(EV.SUBSCRIBE, async (payload, ack) => {
       const rooms = Array.isArray(payload?.rooms) ? payload.rooms.slice(0, 20) : [];
       const joined = [], denied = [], cursors = {};
-      let timing = null, alerts = null;
+      let timing = null, alerts = null, replay = null;
       for (const room of rooms) {
         if (typeof room !== 'string') continue;
         if (room === ROOMS.RACE) {
           // spectators and back-pressured clients get the 2 Hz feed
           const target = user.role === 'viewer' || socket.data.degraded ? ROOMS.RACE_2HZ : ROOMS.RACE;
           socket.join(target); joined.push(target);
+        } else if (room === 'replay') {
+          // real-session replay is public data
+          socket.join(room); joined.push(room);
+          replay = hub.replay?.snapshot() || null;
         } else if (room === ROOMS.TIMING || room === ROOMS.METRICS) {
           socket.join(room); joined.push(room);
           if (room === ROOMS.TIMING) timing = broadcaster.timingSnapshot();
@@ -71,7 +75,7 @@ export function attachLive(io, hub, broadcaster) {
           if (s) strategy[c.id] = s;
         }
       }
-      if (typeof ack === 'function') ack({ joined, denied, cursors, timing, alerts, strategy, session: hub.publicSession(), user: { username: user.username, role: user.role, team: user.team } });
+      if (typeof ack === 'function') ack({ joined, denied, cursors, timing, alerts, strategy, replay, session: hub.publicSession(), user: { username: user.username, role: user.role, team: user.team } });
     });
 
     socket.on(EV.UNSUBSCRIBE, (payload) => {

@@ -363,3 +363,5 @@ input[type=range] { width: 100%; accent-color: var(--red); }
   .tl-delta b { font-size: 40px; }
   .sessbar > div { padding: 0 12px; }
 }
+@media (max-width: 1250px) { .grid-pit[style] { grid-template-columns: 300px minmax(0, 1fr) !important; height: auto !important; } }
+@media (max-width: 820px) { .grid-pit[style] { grid-template-columns: minmax(0, 1fr) !important; } }

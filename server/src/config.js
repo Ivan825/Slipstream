@@ -19,6 +19,9 @@ export const config = {
   qualiScale: num(process.env.QUALI_SCALE, 1),
   randomWeather: bool(process.env.RANDOM_WEATHER, true),
   demoDirector: bool(process.env.DEMO_DIRECTOR, false),
+  replaySession: num(process.env.REPLAY_SESSION, 9636),
+  replayAutoImport: bool(process.env.REPLAY_AUTO_IMPORT, false),
+  replayMinutes: num(process.env.REPLAY_MINUTES, 15),
   raceLaps: num(process.env.RACE_LAPS, 36),
   telemetryTtlMin: num(process.env.TELEMETRY_TTL_MIN, 30),
 
