@@ -218,7 +218,7 @@ export function QualiPanel() {
       </div>
       <div className="card-b" style={{ paddingTop: 0, fontSize: 12.5, color: 'var(--tx-2)' }}>
         {me?.ko ? <>Knocked out in {me.ko}. Final position P{me.pos}.</>
-          : potential ? <>Ideal lap (best sectors) would be worth <b style={{ color: '#fff' }}>P{potential}</b>. Lost to ideal: <b className="mono">{me.best && me.ideal ? ((me.best - me.ideal) / 1000).toFixed(3) : '—'} s</b>.</>
+          : potential ? <>Ideal lap (best sectors) would be worth <b style={{ color: '#fff' }}>P{potential}</b>{me.best && me.ideal ? <>. Lost to ideal: <b className="mono">{(Math.max(0, me.best - me.ideal) / 1000).toFixed(3)} s</b></> : ' once a lap is set in this segment'}.</>
             : <>Set a lap to see the margin to the drop zone and the ideal-lap potential.</>}
       </div>
     </div>

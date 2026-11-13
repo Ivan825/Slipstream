@@ -185,6 +185,10 @@ Every viewer sees the same moment. Race control can pause it, scrub through it o
     <td width="50%"><img src="docs/images/pace.png" alt="Lap-time scatter coloured by compound, team pace box plots and consistency table"><br><sub>Lap times by compound, team pace ranking and consistency.</sub></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/images/qualifying.png" alt="Knockout qualifying: Q2 timing tower with the drop zone line, knocked-out Q1 cars greyed out with their times, and the qualifying panel with cut-off and ideal lap"><br><sub>Knockout qualifying: drop zone, the Q1 knockouts, cut-off and ideal lap.</sub></td>
+    <td width="50%"><img src="docs/images/practice.png" alt="Practice: classification by best lap with cars in the garage and pit lane, and the run monitor tagging out and push laps"><br><sub>Practice: cars run programmes from the garage, and the run monitor tags each lap.</sub></td>
+  </tr>
+  <tr>
     <td colspan="2"><img src="docs/images/real-data.png" alt="Real data replay of the 2024 Brazilian Grand Prix: live timing with real drivers on intermediates, the Interlagos circuit drawn from car coordinates, George Russell's live telemetry and the race-control message feed"><br><sub>Real data: the wet 2024 Brazilian GP replayed from OpenF1, with live timing, every car on the circuit, live driver telemetry and race-control messages.</sub></td>
   </tr>
   <tr>

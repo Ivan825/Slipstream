@@ -42,7 +42,7 @@ export default function TimingTower() {
       return lt(r.best);
     }
     if (r.ko) return lt(r.best);
-    if (col === 'gap') return r.pos === 1 ? lt(r.best) : r.gap != null ? '+' + r.gap.toFixed(3) : 'NO TIME';
+    if (col === 'gap') return r.best == null ? 'NO TIME' : r.pos === 1 ? lt(r.best) : r.gap != null ? '+' + r.gap.toFixed(3) : 'NO TIME';
     if (col === 'best') return lt(r.best ?? r.pb);
     if (col === 'ideal') return lt(r.ideal);
     return String(r.laps ?? 0);
@@ -51,7 +51,7 @@ export default function TimingTower() {
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div className="card-h">
-        <b>{type === 'race' ? 'Timing' : type === 'qualifying' ? `Qualifying${session?.segment ? ' · ' + session.segment.name : ''}` : 'Practice classification'}</b>
+        <b style={{ whiteSpace: 'nowrap' }}>{type === 'race' ? 'Timing' : type === 'qualifying' ? `Timing · ${session?.segment?.name || 'Q'}` : 'Timing · FP'}</b>
         <div className="seg">{cols.map(([k, l]) => <button key={k} className={col === k ? 'on' : ''} onClick={() => setCol(k)}>{l}</button>)}</div>
       </div>
       <div className="tower scroll" style={{ flex: 1, minHeight: 0 }}>

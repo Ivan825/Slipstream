@@ -365,3 +365,6 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 }
 @media (max-width: 1250px) { .grid-pit[style] { grid-template-columns: 300px minmax(0, 1fr) !important; height: auto !important; } }
 @media (max-width: 820px) { .grid-pit[style] { grid-template-columns: minmax(0, 1fr) !important; } }
+
+.card-h .seg { flex-wrap: nowrap; }
+.card-h .seg button { padding: 4px 7px; }
