@@ -19,7 +19,7 @@ Strategy, telemetry and alerts for a race team on real Formula 1 timing. Work th
 </p>
 
 <p align="center">
-  <a href="https://slipstream-p92j.onrender.com"><strong>Live demo</strong></a> ·
+  <a href="https://slipstream-flax.vercel.app"><strong>Live demo</strong></a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#what-you-get">What you get</a> ·
   <a href="#see-it">See it</a> ·
@@ -228,7 +228,7 @@ The screenshots are real. They were captured from a running server on a laptop.
 
 ## Try it
 
-**Live:** https://slipstream-p92j.onrender.com. It's on a free plan, so if nobody has visited for a while the first load can take up to a minute.
+**Live:** https://slipstream-flax.vercel.app (dashboard on Vercel, API and sockets on Render). The same app is also served whole from Render at https://slipstream-p92j.onrender.com. Both run on free plans.
 
 Sign in as your team's crew (for example `mclaren` / `slipstream`), or pick a team on the launcher without signing in. Then:
 
