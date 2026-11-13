@@ -5,6 +5,8 @@ import { CARS, TEAMS, CAR_BY_ID, TRACK_INFO, COMPOUNDS, ALL_COMPOUNDS } from '@s
 import { Lap, Alert, Session, Telemetry, Command } from '../models/index.js';
 import { login, signToken, requireRole, canSeeCar, canSeeTeam, DEMO_PASSWORD } from '../auth.js';
 import { analysisRouter } from './analysis.js';
+import { verifyApiKey } from '../lib/keys.js';
+import { config } from '../config.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -34,6 +36,18 @@ export function apiRouter(hub) {
     password: DEMO_PASSWORD,
     accounts: [{ username: 'control', role: 'race_control' }, ...TEAMS.map((t) => ({ username: t.id, role: 'engineer', team: t.id, name: t.name }))]
   }));
+
+  /* ---------- HTTP ingest (for real devices and scripts without a socket client) ----------
+   * POST /api/ingest   x-api-key: <sourceId>.<hmac>   body: Frame[] or { frames: Frame[] }
+   * Same pipeline as the /ingest socket namespace: validation, token bucket, dedupe, storage.
+   */
+  r.post('/ingest', (req, res) => {
+    const source = verifyApiKey(req.get('x-api-key'), config.ingestSecret);
+    if (!source || source === 'sim') return res.status(401).json({ error: 'invalid or missing x-api-key' });
+    const frames = Array.isArray(req.body) ? req.body : req.body?.frames;
+    const result = hub.ingest(source, frames);
+    res.status(result.error ? 400 : result.limited && !result.accepted ? 429 : 200).json(result);
+  });
 
   /* ---------- session / reference data ---------- */
   r.get('/session', (req, res) => {

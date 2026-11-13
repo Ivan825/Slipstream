@@ -72,6 +72,46 @@ Slipstream is a working pit wall for a simulated race weekend (practice, knockou
 | **Decide** | The strategy engine searches every no-stop, one-stop and two-stop plan, using the same tyre and weather model the cars obey, calibrated online from real lap times. |
 | **Broadcast** | A car's frames go out as soon as its batch is applied. Positions go out as compact 10 Hz frames, and timing as changed fields only. Nothing is sent to a room with no subscribers. Slow clients are moved to a 2 Hz feed. |
 
+## Tech stack
+
+| Layer | Technology | Used for |
+|---|---|---|
+| Database | **MongoDB 7** with Mongoose | Raw telemetry (unique-indexed, TTL hot store); laps with 25 m traces, pit stops, alerts, sessions, users and the command audit log (cold store); aggregation pipelines for analysis |
+| Backend | **Node.js 22 + Express 4** | REST API for auth, history, analysis, strategy, race control and HTTP ingest; helmet, CORS, compression, express-rate-limit |
+| Real time | **Socket.IO 4** | `/ingest` namespace for data sources (acknowledged batches); `/live` namespace for dashboards (JWT, rooms, volatile emits, backpressure) |
+| Frontend | **React 18 + Vite**, React Router, Zustand | Single-page dashboard. High-frequency data lives in mutable ring buffers outside React's render cycle |
+| Visualisation | **Canvas 2D**, **uPlot**, Framer Motion | Track map, traces and tyre heatmap on canvas; time-series and analysis charts in uPlot; animated timing tower and transitions |
+| Validation and auth | **zod**, **jsonwebtoken**, **bcryptjs** | Strict frame and request schemas; role-based access (race control, engineer, spectator) |
+| Tooling | node:test, GitHub Actions, Docker | Unit and engine tests, CI on every push, single-image deployment |
+
+## Data generation and ingestion
+
+**The simulator** (`simulator/`) generates the data. It models a full race weekend on a fictional 5.218 km circuit built from a closed Catmull–Rom spline.
+
+- A reference speed profile comes from the track's curvature and is calibrated to a 91 s lap.
+- Each car follows that profile, scaled by a pace factor from the shared tyre and weather model: compound, tyre age and cliff, track wetness, fuel load, driver skill and track evolution.
+- Throttle, brake, gear, RPM, DRS and ERS follow from the car's acceleration.
+- Tyre surface temperatures (inner, middle and outer for each corner) respond to cornering load, braking, traction, track temperature and rain. Pressures follow temperature. Brake temperatures spike under braking.
+- AI teams pit before their tyres' cliff, switch to intermediates in the rain and take cheap stops under the safety car. In practice and qualifying, cars run programmes from the garage.
+- Race control can inject punctures, brake fade, engine or tyre overheating, rain, safety cars and stream-rate bursts.
+
+**Ingestion**
+
+- Every car is an independent source on its own Socket.IO connection to `/ingest`, using an HMAC-derived API key.
+- It produces frames at 20 Hz and sends them in 100 ms batches. Each batch is acknowledged.
+- The simulator deliberately duplicates about 0.4% of frames and reorders another 0.4%, so the dedupe and reorder logic is always exercised.
+
+**Real devices** can push the same frames over plain HTTP: `POST /api/ingest` with an `x-api-key` header. [`examples/http-source.mjs`](examples/http-source.mjs) is a 50-line source that does exactly that.
+
+Every frame identifies its source, sequence number and timestamp:
+
+```json
+{ "carId": "KAL", "seq": 18442, "ts": 1763030000123, "lap": 14, "d": 2210.4, "v": 287.4,
+  "thr": 1, "brk": 0, "g": 7, "rpm": 11420, "drs": 1, "ers": 62.1, "fuel": 38.4, "tc": "M", "ta": 9, "tw": 31.2,
+  "tt": [96.1, 92.4, 89.0, 101.2, 97.3, 93.1, 94.0, 90.2, 87.7, 95.6, 91.8, 88.3],
+  "tp": [21.9, 22.1, 21.0, 21.1], "bt": [612, 640, 498, 505], "et": 104.2, "ot": 115.0, "st": "RUN" }
+```
+
 ## What you get
 
 **A live pit wall.** The circuit is drawn on canvas and coloured by speed, by sector or by **live track dominance**. It shows kerbs, corner numbers, DRS zones, a radar sweep when it rains, and glowing cars with trails, interpolated to 60 fps between 10 Hz updates. Beside the map are a timing tower that slides as positions change, sector colours, tyres and stops, the car card, a weather forecast and a team-radio feed of alerts.
@@ -240,9 +280,9 @@ Working end to end on one machine and in Docker:
 
 ## Limitations
 
-- **The cars are simulated.** The physics is a believable model, not a vehicle-dynamics package. Lap times, temperatures and degradation are realistic in shape but not calibrated to a real car.
-- **One server process.** Rooms and race state live in memory. Running several instances would need the Redis adapter.
-- **Clocks.** End-to-end latency uses the source timestamp, so it's exact only when the sources and the server share a clock, which they do in the bundled setup.
+- **The cars are simulated.** The physics is a believable model, not a vehicle-dynamics package. Lap times, temperatures and degradation are realistic in shape but not calibrated to a real car. Real devices can already stream through `POST /api/ingest`, but only race cars defined in `shared/` take part in timing.
+- **One server process.** Rooms and race state live in memory. One process sustains more than 5,000 events/s with 500 dashboards on a laptop. Going further would mean splitting into a single ingest/compute node plus fan-out nodes joined by the Socket.IO Redis adapter. That's designed for but not built.
+- **Clocks.** Source-to-dashboard latency uses the source timestamp, so it's exact only when the sources and the server share a clock, which they do in the bundled setup. Round-trip latency on the Systems page and the session countdown are corrected for clock offset.
 - **The strategist is a model.** It's deterministic and explainable, and only as good as the tyre and weather model it shares with the simulator.
 
 ## Credits

@@ -25,5 +25,6 @@ services:
         value: "true"
       - key: CLIENT_ORIGIN
         value: https://slipstream.onrender.com
+      # keeps the raw telemetry of a free-tier Atlas cluster (512 MB) well under its limit
       - key: TELEMETRY_TTL_MIN
-        value: "20"
+        value: "10"
