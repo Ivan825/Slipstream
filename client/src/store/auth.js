@@ -13,10 +13,9 @@ const initial = load();
 export const useAuth = create((set) => ({
   token: initial.token || null,
   user: initial.user || null,
-  spectator: !!initial.spectator,
-  login(token, user) { save({ token, user }); set({ token, user, spectator: false }); },
-  watchAsSpectator() { save({ spectator: true }); set({ token: null, user: null, spectator: true }); },
-  logout() { save(null); set({ token: null, user: null, spectator: false }); }
+  login(token, user) { save({ token, user }); set({ token, user }); },
+  logout() { save(null); set({ token: null, user: null }); }
 }));
 
-export const roleOf = (s) => s.user?.role || (s.spectator ? 'viewer' : null);
+// No sign-in needed to watch: anyone without a token is a viewer.
+export const roleOf = (s) => s.user?.role || 'viewer';

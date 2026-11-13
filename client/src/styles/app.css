@@ -368,3 +368,16 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 
 .card-h .seg { flex-wrap: nowrap; }
 .card-h .seg button { padding: 4px 7px; }
+
+.source-switch { background: rgba(0,0,0,.25); flex: none; }
+.source-switch button { color: rgba(255,255,255,.75); font-size: 11px; padding: 5px 10px; white-space: nowrap; }
+.source-switch button.on { background: #fff; color: var(--red); }
+@media (max-width: 760px) { .source-switch button { padding: 4px 7px; font-size: 10px; } }
+
+/* ---------- home ---------- */
+.home-hero { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px 30px; border-left: 4px solid var(--red); overflow: hidden; }
+.home-hero h1 { margin: 6px 0 8px; font-size: 40px; font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1; }
+.home-hero p { margin: 0; color: rgba(255,255,255,.75); max-width: 72ch; }
+.home-card .card-b { min-height: 190px; }
+.home-big { display: block; font-size: 20px; font-weight: 900; text-transform: uppercase; margin: 2px 0; }
+@media (max-width: 760px) { .home-hero { padding: 20px 16px; } .home-hero h1 { font-size: 28px; } .home-hero svg { display: none; } }

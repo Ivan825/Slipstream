@@ -46,7 +46,7 @@ export default function Telemetry() {
   const select = useUI((s) => s.select);
   useRooms(meta && canOpen(user, id) ? [`car:${id}`, 'timing', `team:${meta.team}`] : []);
   useEffect(() => { if (meta) select(id); }, [id, meta, select]);
-  if (!meta) return <Navigate to="/" />;
+  if (!meta) return <Navigate to="/pitwall" />;
   if (!canOpen(user, id)) {
     return <div className="card"><div className="empty"><b>Team data</b>Full telemetry for car {meta.number} is only visible to {TEAM_BY_ID[meta.team].name} and race control.</div></div>;
   }

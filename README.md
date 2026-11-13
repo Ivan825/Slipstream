@@ -82,7 +82,7 @@ Slipstream is a working pit wall for a simulated race weekend (practice, knockou
 | Real time | **Socket.IO 4** | `/ingest` namespace for data sources (acknowledged batches); `/live` namespace for dashboards (JWT, rooms, volatile emits, backpressure) |
 | Frontend | **React 18 + Vite**, React Router, Zustand | Single-page dashboard. High-frequency data lives in mutable ring buffers outside React's render cycle |
 | Visualisation | **Canvas 2D**, **uPlot**, Framer Motion | Track map, traces and tyre heatmap on canvas; time-series and analysis charts in uPlot; animated timing tower and transitions |
-| Validation and auth | **zod**, **jsonwebtoken**, **bcryptjs** | Strict frame and request schemas; role-based access (race control, engineer, spectator) |
+| Validation and auth | **zod**, **jsonwebtoken**, **bcryptjs** | Strict frame and request schemas; role-based access (race control, engineer, anonymous viewer) |
 | Tooling | node:test, GitHub Actions, Docker | Unit and engine tests, CI on every push, single-image deployment |
 
 ## Data generation and ingestion
@@ -146,7 +146,7 @@ Every frame identifies its source, sequence number and timestamp:
 
 [The engineering reference →](docs/RACE_ENGINEERING.md)
 
-**Real sessions, live or replayed.** The **Real Data** page opens any Formula 1 session since 2023 (practice, qualifying, sprints, races) from [OpenF1](https://openf1.org), with real drivers, teams and colours.
+**Real sessions, live or replayed.** The home page and the **F1 Sessions** page open any Formula 1 session since 2023 (practice, qualifying, sprints, races) from [OpenF1](https://openf1.org), with real drivers, teams and colours.
 
 There's one feed path with two feeds behind it:
 
@@ -177,7 +177,7 @@ Idle channels close themselves.
 
 **Numbers, not claims.** A Systems page shows live ingest and broadcast rates, latency percentiles, duplicates, reordered and late frames, DB batch timing, back-pressured clients and event-loop lag. The [stress test](docs/STRESS_TEST.md) records **5,359 events/s from 120 sources with 500 dashboards connected, at a position-frame latency of 11 ms p50 and 23 ms p95**, with nothing shed.
 
-**Roles.** Race control sees everything. An engineer sees full telemetry, alerts and strategy for their own team's two cars only, enforced on every REST call and every room join. Spectators get public timing at 2 Hz without signing in.
+**Roles.** Race control sees everything. An engineer sees full telemetry, alerts and strategy for their own team's two cars only, enforced on every REST call and every room join. Anyone can watch public timing at 2 Hz without signing in.
 
 ## See it
 
@@ -199,7 +199,7 @@ Idle channels close themselves.
     <td width="50%"><img src="docs/images/practice.png" alt="Practice: classification by best lap with cars in the garage and pit lane, and the run monitor tagging out and push laps"><br><sub>Practice: cars run programmes from the garage, and the run monitor tags each lap.</sub></td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/images/real-sessions.png" alt="Session browser: every Formula 1 session of the season with the live-feed card, channels being watched and sessions stored in MongoDB"><br><sub>Pick any session since 2023; the live feed lights up with an OpenF1 key.</sub></td>
+    <td colspan="2"><img src="docs/images/home.png" alt="Home page asking what you want to watch: a live card with the next Formula 1 session and a countdown, a card to relive the latest race or any past session, a card for the simulated weekend, and the grid of every session of the season"><br><sub>The front door, no sign-in: watch F1 live (with an OpenF1 key), relive any session since 2023, or run the simulated weekend.</sub></td>
   </tr>
   <tr>
     <td colspan="2"><img src="docs/images/real-data.png" alt="Real data replay of the 2024 Brazilian Grand Prix: live timing with real drivers on intermediates, the Interlagos circuit drawn from car coordinates, George Russell's live telemetry and the race-control message feed"><br><sub>Real data: the full wet 2024 Brazilian GP fed through the historical feed on a shared clock, with live timing, every car on the circuit, driver telemetry and race-control messages.</sub></td>
@@ -216,7 +216,14 @@ The screenshots are real. They were captured from a running server on a laptop.
 
 **Live:** https://slipstream-p92j.onrender.com. It's on a free plan, so if nobody has visited for a while the first load can take up to a minute.
 
-- **Spectator:** no sign-in. Live timing, and **Real Data** for any Formula 1 session since 2023, with playback controls.
+No sign-in is needed to watch. The home page asks what you want to see:
+
+- **Live:** the Formula 1 session running right now (needs an OpenF1 key on the server; otherwise it shows the next session and a countdown).
+- **Relive a race:** any practice, qualifying, sprint or race since 2023, on a real-time clock you can pause, seek or speed up. The pit wall, telemetry and analysis pages all follow the session you pick.
+- **Simulated weekend:** our own 20-car race with deep telemetry, alerts and the strategist.
+
+Sign in (top right) to take a seat on the simulated weekend's pit wall:
+
 - **Team engineer:** pick a team, password `slipstream`. Full telemetry, ghost lap, alerts and the strategist for that team's two cars.
 - **Race control:** `control` / `slipstream`. Start practice, qualifying or a race; set flags; schedule rain; inject incidents; change the stream rate.
 
@@ -235,13 +242,13 @@ npm run dev          # server :4000 + simulator + dashboard on http://localhost:
 
 Or start everything with one command: `docker compose up --build`, then open http://localhost:4000.
 
-Sign in with a demo account. The password for every account is `slipstream`.
+Watching needs no account. To sign in as an engineer or race control, use a demo account. The password for every account is `slipstream`.
 
 | Role | Username |
 |---|---|
 | Race control | `control` |
 | Engineer | the team id: `kestrel`, `vortex`, `ardent`, `halcyon`, `solaris`, `monarch`, `nordwind`, `verdant`, `azzurra`, `basalt` |
-| Spectator | no sign-in |
+| Viewer | no sign-in |
 
 A race starts on its own. **For a demo:**
 
@@ -333,7 +340,7 @@ Working end to end on one machine and in Docker:
 
 Built with [Express](https://expressjs.com/), [Socket.IO](https://socket.io/), [Mongoose](https://mongoosejs.com/), [zod](https://zod.dev/), [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken), [bcryptjs](https://github.com/dcodeIO/bcrypt.js), [helmet](https://helmetjs.github.io/), [express-rate-limit](https://github.com/express-rate-limit/express-rate-limit), [cors](https://github.com/expressjs/cors), [compression](https://github.com/expressjs/compression), [React](https://react.dev/), [React Router](https://reactrouter.com/), [Vite](https://vitejs.dev/), [Zustand](https://github.com/pmndrs/zustand), [Framer Motion](https://www.framer.com/motion/) and [uPlot](https://github.com/leeoniya/uPlot), all MIT licensed. Real session data comes from [OpenF1](https://openf1.org), an unofficial open API (free historical data, for non-commercial use). Slipstream isn't associated with Formula 1 companies, and F1, FORMULA 1 and related marks belong to their owners. Fonts are [Titillium Web](https://fonts.google.com/specimen/Titillium+Web) and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) (SIL Open Font License).
 
-The circuit is a Catmull–Rom spline. Anomaly baselines use exponentially weighted moving averages. Rate limiting is a token bucket. The analysis views follow the conventions of professional motorsport data systems and official timing documents, as described in [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md). In the simulated weekend, team, driver and circuit names are fictional. The Real Data page shows real, recorded session data from OpenF1.
+The circuit is a Catmull–Rom spline. Anomaly baselines use exponentially weighted moving averages. Rate limiting is a token bucket. The analysis views follow the conventions of professional motorsport data systems and official timing documents, as described in [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md). In the simulated weekend, team, driver and circuit names are fictional. The F1 session views show real, recorded session data from OpenF1.
 
 ## Licence
 

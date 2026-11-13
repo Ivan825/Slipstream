@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRooms } from '../lib/live.js';
+import { useRealChannel } from '../lib/realChannel.js';
 import { api } from '../lib/api.js';
 import { useCanvas, useAnimationFrame, useTicker } from '../lib/hooks.js';
 import { useReplay, replayCars, replayPos, replayTrace, replayClock } from '../store/replay.js';
@@ -8,6 +9,8 @@ import { useAuth } from '../store/auth.js';
 import { useToasts } from '../store/stores.js';
 import { Tyre } from '../components/TimingTower.jsx';
 import { formatLapTime } from '@slipstream/shared';
+
+export { RealTrack, DriverPanel, FLAG, clock, gapText };
 
 const lt = (s) => (s == null ? '—' : formatLapTime(s));
 const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -20,25 +23,18 @@ export default function RealData() {
 }
 
 /* ---------------- session browser ---------------- */
-function Browser() {
-  const nav = useNavigate();
+/** Year tabs + every meeting of that year, each session a button. Shared by Home and the browser page. */
+export function SessionGrid({ onPick, title = 'Every session', subtitle }) {
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(thisYear);
   const [list, setList] = useState(null);
   const [err, setErr] = useState(null);
-  const [channels, setChannels] = useState({ channels: [], cached: [], live: false });
   useEffect(() => {
     let alive = true;
     setList(null); setErr(null);
     api(`/replay/catalog?year=${year}`).then((d) => alive && setList(d.sessions)).catch((e) => alive && setErr(e.message));
     return () => { alive = false; };
   }, [year]);
-  useEffect(() => {
-    const load = () => api('/replay/channels').then(setChannels).catch(() => {});
-    load();
-    const id = setInterval(load, 5000);
-    return () => clearInterval(id);
-  }, []);
   const meetings = useMemo(() => {
     const m = new Map();
     for (const s of list || []) {
@@ -52,8 +48,51 @@ function Browser() {
   return (
     <div className="stack">
       <div className="page-title">
-        <div><h1>Real data</h1><p>Every Formula 1 session since 2023, from OpenF1. Pick one and live through it as if it were happening now: the server streams the session through the same real-time path a live feed uses, on a shared clock for everyone watching.</p></div>
+        <div><h2 style={{ margin: 0 }}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
         <div className="seg">{Array.from({ length: thisYear - 2022 }, (_, i) => 2023 + i).reverse().map((y) => <button key={y} className={y === year ? 'on' : ''} onClick={() => setYear(y)}>{y}</button>)}</div>
+      </div>
+      {err && <div className="card"><div className="empty"><b>Could not reach OpenF1</b>{err}</div></div>}
+      {!list && !err && <div className="shimmer" style={{ height: 240 }} />}
+      {list && !meetings.length && <div className="card"><div className="empty"><b>No sessions yet</b>OpenF1 has nothing for {year} so far.</div></div>}
+      {list && (
+        <div className="three">
+          {meetings.map((m) => {
+            const future = Date.parse(m.start) > now;
+            return (
+              <div key={m.meeting} className="card" style={{ opacity: future ? 0.5 : 1 }}>
+                <div className="card-h"><b>{m.country}</b><span className="chip">{new Date(m.start).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span></div>
+                <div className="card-b">
+                  <div className="mu" style={{ fontSize: 12, marginBottom: 8 }}>{m.circuit}</div>
+                  <div className="row" style={{ gap: 6 }}>
+                    {m.sessions.map((s) => {
+                      const ended = Date.parse(s.end) < now;
+                      return <button key={s.key} className={`btn sm ${/^Race$/.test(s.name) ? 'red' : ''}`} disabled={!ended} title={ended ? `Watch ${s.name}` : 'Not run yet'} onClick={() => onPick(s.key)}>{s.name}</button>;
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="mu" style={{ fontSize: 12, margin: 0 }}>Data: <a href="https://openf1.org" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>OpenF1</a>, an unofficial open API, used for non-commercial demonstration. Not associated with Formula 1 companies.</p>
+    </div>
+  );
+}
+
+function Browser() {
+  const nav = useNavigate();
+  const [channels, setChannels] = useState({ channels: [], cached: [], live: false });
+  useEffect(() => {
+    const load = () => api('/replay/channels').then(setChannels).catch(() => {});
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="stack">
+      <div className="page-title">
+        <div><h1>F1 sessions</h1><p>Every Formula 1 session since 2023, from OpenF1. Pick one and live through it as if it were happening now: the server streams the session through the same real-time path a live feed uses, on a shared clock for everyone watching.</p></div>
       </div>
       <div className="three">
         <div className={`card ${channels.live ? 'hl' : ''}`}>
@@ -88,47 +127,14 @@ function Browser() {
           </div>
         </div>
       </div>
-      {err && <div className="card"><div className="empty"><b>Could not reach OpenF1</b>{err}</div></div>}
-      {!list && !err && <div className="shimmer" style={{ height: 240 }} />}
-      {list && (
-        <div className="three">
-          {meetings.map((m) => {
-            const future = Date.parse(m.start) > now;
-            return (
-              <div key={m.meeting} className="card" style={{ opacity: future ? 0.5 : 1 }}>
-                <div className="card-h"><b>{m.country}</b><span className="chip">{new Date(m.start).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span></div>
-                <div className="card-b">
-                  <div className="mu" style={{ fontSize: 12, marginBottom: 8 }}>{m.circuit}</div>
-                  <div className="row" style={{ gap: 6 }}>
-                    {m.sessions.map((s) => {
-                      const ended = Date.parse(s.end) < now;
-                      return <button key={s.key} className={`btn sm ${/^Race$/.test(s.name) ? 'red' : ''}`} disabled={!ended} title={ended ? `Watch ${s.name}` : 'Not run yet'} onClick={() => nav(`/real/${s.key}`)}>{s.name}</button>;
-                    })}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <p className="mu" style={{ fontSize: 12, margin: 0 }}>Data: <a href="https://openf1.org" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>OpenF1</a>, an unofficial open API, used for non-commercial demonstration. Not associated with Formula 1 companies.</p>
+      <SessionGrid onPick={(k) => nav(`/real/${k}`)} />
     </div>
   );
 }
 
 /* ---------------- one session, on a shared clock ---------------- */
-function Channel({ channelKey }) {
-  const [opened, setOpened] = useState(false);
-  const [openErr, setOpenErr] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    useReplay.getState().open(channelKey);
-    api('/replay/open', { method: 'POST', body: { key: channelKey === 'live' ? 'live' : Number(channelKey) } })
-      .then((snap) => { if (!alive) return; useReplay.getState().snapshot({ ...snap }); setOpened(String(snap.meta.key)); })
-      .catch((e) => alive && setOpenErr(e.message));
-    return () => { alive = false; };
-  }, [channelKey]);
-  useRooms(opened ? [`replay:${opened}`] : []);
+export function Channel({ channelKey }) {
+  const { opened, error: openErr } = useRealChannel(channelKey);
   useTicker(4);
   const { meta, state, rows, rc, feed, selected, select } = useReplay();
   const role = useAuth((s) => s.user?.role);

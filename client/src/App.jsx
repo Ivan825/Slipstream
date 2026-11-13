@@ -7,13 +7,18 @@ import Nav from './components/Nav.jsx';
 import SessionBar from './components/SessionBar.jsx';
 import Overlays from './components/Overlays.jsx';
 import Login from './pages/Login.jsx';
+import Home from './pages/Home.jsx';
 import PitWall from './pages/PitWall.jsx';
 import Telemetry from './pages/Telemetry.jsx';
 import Strategy from './pages/Strategy.jsx';
 import Analysis from './pages/Analysis.jsx';
 import RaceControl from './pages/RaceControl.jsx';
 import Systems from './pages/Systems.jsx';
-import Replay from './pages/Replay.jsx';
+import Replay, { Channel } from './pages/Replay.jsx';
+import RealTelemetry from './pages/RealTelemetry.jsx';
+import RealAnalysis from './pages/RealAnalysis.jsx';
+import { useRealChannel } from './lib/realChannel.js';
+import { useUI } from './store/stores.js';
 
 function Page({ children }) {
   return (
@@ -29,27 +34,35 @@ export default function App() {
   const location = useLocation();
 
   useEffect(() => {
-    if (role) connectLive(auth.token);
-  }, [role, auth.token]);
+    connectLive(auth.token); // anonymous sockets get the public viewer feed
+  }, [auth.token]);
 
-  if (!role) return <Login />;
+  if (location.pathname === '/login') return <Login />;
   return <Shell role={role} location={location} />;
+}
+
+function RealStrategyNote() {
+  return <div className="card"><div className="empty"><b>The strategist runs on the simulated weekend</b>It plans pit stops with the tyre and weather model the simulated cars obey (tyre temperatures, wear, fuel), which real public timing data doesn't include. Switch to Sim in the top bar to use it.</div></div>;
 }
 
 function Shell({ role, location }) {
   useRooms(['metrics']); // 1 Hz pipeline metrics feed the session bar everywhere
+  const source = useUI((s) => s.source);
+  const realKey = source.kind === 'real' ? source.key : null;
+  useRealChannel(realKey); // every page follows the chosen real session
 
   return (
     <div className="shell">
       <Nav />
       <SessionBar />
       <AnimatePresence mode="wait">
-        <Routes location={location} key={location.pathname.split('/')[1]}>
-          <Route path="/" element={<Page><PitWall /></Page>} />
-          <Route path="/car/:id" element={<Page><Telemetry /></Page>} />
-          <Route path="/strategy" element={<Page><Strategy /></Page>} />
-          <Route path="/analysis" element={<Page><Analysis /></Page>} />
-          <Route path="/control" element={role === 'race_control' ? <Page><RaceControl /></Page> : <Navigate to="/" />} />
+        <Routes location={location} key={location.pathname.split('/')[1] + (realKey || 'sim')}>
+          <Route path="/" element={<Page><Home /></Page>} />
+          <Route path="/pitwall" element={<Page>{realKey ? <Channel channelKey={realKey} key={realKey} /> : <PitWall />}</Page>} />
+          <Route path="/car/:id" element={<Page>{realKey ? <RealTelemetry /> : <Telemetry />}</Page>} />
+          <Route path="/strategy" element={<Page>{realKey ? <RealStrategyNote /> : <Strategy />}</Page>} />
+          <Route path="/analysis" element={<Page>{realKey ? <RealAnalysis /> : <Analysis />}</Page>} />
+          <Route path="/control" element={role === 'race_control' ? <Page><RaceControl /></Page> : <Navigate to="/login" />} />
           <Route path="/systems" element={<Page><Systems /></Page>} />
           <Route path="/real" element={<Page><Replay /></Page>} />
           <Route path="/real/:key" element={<Page><Replay /></Page>} />

@@ -54,14 +54,14 @@ On Render, open the service → **Environment** and set:
 CLIENT_ORIGIN=https://slipstream.vercel.app,https://slipstream-abcd.onrender.com
 ```
 
-Save. Render redeploys in about a minute. That's it: open the Vercel URL and sign in as `control`, `kestrel` or any team id, with password `slipstream`.
+Save. Render redeploys in about a minute. That's it: open the Vercel URL: anyone can watch without an account, and **Sign in** takes `control`, `kestrel` or any team id, with password `slipstream`.
 
 ## 5. Check it
 
 - [ ] `https://<render>/api/health` returns `ok: true, db: true`
 - [ ] The Vercel site shows **LIVE** in the top bar, and cars move on the pit wall
 - [ ] Sign in as `kestrel`: Telemetry shows the ghost-lap seam and live traces
-- [ ] Real Data → pick a 2024 race: it opens within about 10 s and cars move
+- [ ] Home → pick a 2024 race: it opens within about 10 s and cars move
 - [ ] Systems shows ingest at about 400 events/s
 
 ## Notes

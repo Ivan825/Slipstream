@@ -97,7 +97,7 @@ Two Socket.IO namespaces keep data sources and dashboards apart: they have diffe
 | Namespace | Auth | Events in | Events out |
 |---|---|---|---|
 | `/ingest` | `apiKey = <sourceId>.<HMAC(secret, sourceId)>` | `telemetry` (≤ 50 frames, acknowledged) | `sim:state`, `sim:command` to the controller |
-| `/live` | optional JWT (no token = spectator) | `subscribe`, `unsubscribe`, `alert:ack` | `race`, `timing`, `car`, `lap`, `alert`, `alert:acked`, `strategy`, `command`, `pitstop`, `session`, `metrics` |
+| `/live` | optional JWT (no token = public viewer) | `subscribe`, `unsubscribe`, `alert:ack` | `race`, `timing`, `car`, `lap`, `alert`, `alert:acked`, `strategy`, `command`, `pitstop`, `session`, `metrics` |
 
 Rooms on `/live`, and who may join them:
 
@@ -164,7 +164,7 @@ flowchart LR
   CH -->|replay:frame 5 Hz · volatile| ROOM[/live room replay:&lt;session&gt;/]
   CH -->|replay:timing 2 Hz| ROOM
   CH -->|replay:events as they happen| ROOM
-  ROOM --> UI[Real Data page]
+  ROOM --> UI[Pit wall, telemetry, analysis]
   M[ReplayManager<br/>open on demand · share · close idle] --- CH
 ```
 
