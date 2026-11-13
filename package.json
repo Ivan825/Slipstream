@@ -1,0 +1,32 @@
+{
+  "name": "slipstream",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time race telemetry platform: live pit wall, ghost laps, anomaly alerts and a live strategy engine on MongoDB, Express, React, Node and Socket.IO.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "simulator",
+    "client",
+    "loadtest"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,sim,client -c red,yellow,cyan \"npm:dev:server\" \"npm:dev:sim\" \"npm:dev:client\"",
+    "dev:server": "npm run dev -w server",
+    "dev:sim": "npm run start -w simulator",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server",
+    "seed": "npm run seed -w server",
+    "test": "npm test -w server && npm test -w shared",
+    "loadtest": "npm run start -w loadtest --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
