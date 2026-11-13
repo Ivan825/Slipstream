@@ -381,3 +381,4 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 .home-card .card-b { min-height: 190px; }
 .home-big { display: block; font-size: 20px; font-weight: 900; text-transform: uppercase; margin: 2px 0; }
 @media (max-width: 760px) { .home-hero { padding: 20px 16px; } .home-hero h1 { font-size: 28px; } .home-hero svg { display: none; } }
+.card-b .big { font-size: 22px; }

@@ -17,6 +17,7 @@ import Systems from './pages/Systems.jsx';
 import Replay, { Channel } from './pages/Replay.jsx';
 import RealTelemetry from './pages/RealTelemetry.jsx';
 import RealAnalysis from './pages/RealAnalysis.jsx';
+import RealStrategy from './pages/RealStrategy.jsx';
 import { useRealChannel } from './lib/realChannel.js';
 import { useUI } from './store/stores.js';
 
@@ -41,10 +42,6 @@ export default function App() {
   return <Shell role={role} location={location} />;
 }
 
-function RealStrategyNote() {
-  return <div className="card"><div className="empty"><b>The strategist runs on the simulated weekend</b>It plans pit stops with the tyre and weather model the simulated cars obey (tyre temperatures, wear, fuel), which real public timing data doesn't include. Switch to Sim in the top bar to use it.</div></div>;
-}
-
 function Shell({ role, location }) {
   useRooms(['metrics']); // 1 Hz pipeline metrics feed the session bar everywhere
   const source = useUI((s) => s.source);
@@ -60,7 +57,7 @@ function Shell({ role, location }) {
           <Route path="/" element={<Page><Home /></Page>} />
           <Route path="/pitwall" element={<Page>{realKey ? <Channel channelKey={realKey} key={realKey} /> : <PitWall />}</Page>} />
           <Route path="/car/:id" element={<Page>{realKey ? <RealTelemetry /> : <Telemetry />}</Page>} />
-          <Route path="/strategy" element={<Page>{realKey ? <RealStrategyNote /> : <Strategy />}</Page>} />
+          <Route path="/strategy" element={<Page>{realKey ? <RealStrategy /> : <Strategy />}</Page>} />
           <Route path="/analysis" element={<Page>{realKey ? <RealAnalysis /> : <Analysis />}</Page>} />
           <Route path="/control" element={role === 'race_control' ? <Page><RaceControl /></Page> : <Navigate to="/login" />} />
           <Route path="/systems" element={<Page><Systems /></Page>} />

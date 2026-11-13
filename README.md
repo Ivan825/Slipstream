@@ -153,7 +153,9 @@ There's one feed path with two feeds behind it:
 - **Historical feed:** any past session, no key needed. The server streams the whole session in 2-minute chunks just ahead of a real-time clock, so you live through it as if it were happening. You can pause, seek anywhere, or play at up to 16×.
 - **Live feed:** add an OpenF1 subscription key (`OPENF1_TOKEN`, or `OPENF1_USERNAME` and `OPENF1_PASSWORD`) and the same channel follows the session running right now, a few seconds behind real time.
 
-Every chunk is cached in MongoDB as it's fetched. A session is downloaded once, and a live session is **recorded as it happens** and can be replayed afterwards.
+The pit wall, telemetry, analysis and **strategy** pages all follow the chosen session. On real races the strategist works from the session's own data: pit loss measured from the stops already made, degradation from lap times on the current set, tyre life from finished stints, where each car would rejoin if it boxed now, undercut threats, and cheap stops under a safety car or red flag.
+
+Every chunk is packed into one compressed document in MongoDB (about 100 KB for two minutes of all 20 cars) as it's fetched. A session is downloaded once, and a live session is **recorded as it happens** and can be replayed afterwards.
 
 Each session plays as a shared **channel** (Socket.IO room `replay:<session>`) on one clock, so everyone watching the same race sees the same moment, while other viewers can be on other races. The channel sends:
 

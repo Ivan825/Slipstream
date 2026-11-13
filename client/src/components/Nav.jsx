@@ -45,7 +45,7 @@ export default function Nav() {
         {real
           ? <NavLink to={`/car/${realDriver || firstReal || ''}`}>Telemetry</NavLink>
           : role !== 'viewer' && <NavLink to={`/car/${defaultCar(user)}`}>Telemetry</NavLink>}
-        {!real && role !== 'viewer' && <NavLink to="/strategy">Strategy</NavLink>}
+        {(real || role !== 'viewer') && <NavLink to="/strategy">Strategy</NavLink>}
         <NavLink to="/analysis">Analysis</NavLink>
         <NavLink to="/real">F1 Sessions</NavLink>
         {role === 'race_control' && <NavLink to="/control">Race Control</NavLink>}
