@@ -1,0 +1,30 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  slipstream:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017/slipstream
+      JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret}
+      INGEST_SECRET: ${INGEST_SECRET:-change-me-ingest-secret}
+      CLIENT_ORIGIN: http://localhost:4000
+      SERVE_CLIENT: "true"
+      EMBED_SIMULATOR: "true"
+
+volumes:
+  mongo-data:

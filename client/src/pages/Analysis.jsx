@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CARS, CAR_BY_ID, TEAMS, TEAM_BY_ID, COMPOUNDS, SESSION_LABEL, formatLapTime, getTrack } from '@slipstream/shared';
 import { api } from '../lib/api.js';
 import { useSession, colorOf } from '../store/stores.js';
@@ -21,7 +22,9 @@ export default function Analysis() {
   const [sid, setSid] = useState('current');
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
-  const [tab, setTab] = useState('classification');
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.some(([k]) => k === params.get('tab')) ? params.get('tab') : 'classification';
+  const setTab = (k) => setParams((p) => { p.set('tab', k); return p; }, { replace: true });
 
   useEffect(() => { api('/analysis/sessions').then((d) => setSessions(d.sessions)).catch(() => {}); }, [live?.sessionId, live?.status]);
   useEffect(() => {
@@ -176,9 +179,9 @@ function History({ d }) {
     <div className="stack">
       <div className="row">{cars.map((id) => <button key={id} className="chip" style={{ borderColor: only === id ? '#fff' : colorOf(id) }} onClick={() => setOnly(only === id ? null : id)}>{id}</button>)}</div>
       <div className="card"><div className="card-h"><b>Race history chart</b><span className="chip">gap to winner's average pace, s · pit stops show as drops</span></div>
-        <div className="card-b"><UChart className="chart-box lg" optsKey={`hist:${cars.join()}:${only}`} data={trace} series={series} axes={[{ label: 'lap' }, { label: 'seconds' }]} /></div></div>
+        <div className="card-b"><UChart className="chart-box lg" optsKey={`hist:${cars.join()}:${only}`} data={trace} series={series} axes={[{ label: 'lap', incrs: [1, 2, 5, 10] }, { label: 'seconds' }]} /></div></div>
       <div className="card"><div className="card-h"><b>Lap chart</b><span className="chip">position at each line crossing</span></div>
-        <div className="card-b"><UChart className="chart-box lg" optsKey={`lc:${cars.join()}:${only}:${maxLap}`} data={chart} series={series} scales={{ x: { time: false }, y: { dir: -1, range: [0.5, 20.5] } }} axes={[{ label: 'lap' }, { label: 'position', splits: () => [1, 5, 10, 15, 20] }]} /></div></div>
+        <div className="card-b"><UChart className="chart-box lg" optsKey={`lc:${cars.join()}:${only}:${maxLap}`} data={chart} series={series} scales={{ x: { time: false }, y: { dir: -1, range: [0.5, 20.5] } }} axes={[{ label: 'lap', incrs: [1, 2, 5, 10] }, { label: 'position', splits: () => [1, 5, 10, 15, 20] }]} /></div></div>
     </div>
   );
 }

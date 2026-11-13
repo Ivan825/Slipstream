@@ -1,0 +1,29 @@
+# Render blueprint: one web service runs the API, the sockets, the simulator and the dashboard.
+# Set MONGO_URI to a MongoDB Atlas connection string after the first deploy.
+services:
+  - type: web
+    name: slipstream
+    runtime: node
+    plan: free
+    buildCommand: npm ci && VITE_API_URL= npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: INGEST_SECRET
+        generateValue: true
+      - key: SERVE_CLIENT
+        value: "true"
+      - key: EMBED_SIMULATOR
+        value: "true"
+      - key: CLIENT_ORIGIN
+        value: https://slipstream.onrender.com
+      - key: TELEMETRY_TTL_MIN
+        value: "20"
