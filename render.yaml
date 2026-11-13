@@ -5,6 +5,8 @@ services:
     name: slipstream
     runtime: node
     plan: free
+    # closest Render region to the Atlas cluster (AWS Mumbai, ap-south-1)
+    region: singapore
     buildCommand: npm ci && VITE_API_URL= npm run build
     startCommand: npm start
     healthCheckPath: /api/health
