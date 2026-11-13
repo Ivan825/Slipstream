@@ -25,6 +25,7 @@ services:
       CLIENT_ORIGIN: http://localhost:4000
       SERVE_CLIENT: "true"
       EMBED_SIMULATOR: "true"
+      DEMO_DIRECTOR: "true"
 
 volumes:
   mongo-data:

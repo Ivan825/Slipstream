@@ -232,6 +232,13 @@ export function apiRouter(hub) {
     if (body.burst) hub.simCommand({ type: 'burst', ...body.burst }, req.user);
     res.json({ ok: true, hz: hub.session.simHz });
   });
+  rc.post('/director', (req, res) => {
+    const body = parse(z.object({ enabled: z.boolean() }), req.body, res);
+    if (!body) return;
+    hub.director.set(body.enabled);
+    hub.broadcastSession({ event: 'director' });
+    res.json({ ok: true, enabled: hub.director.enabled });
+  });
   rc.get('/commands', wrap(async (_req, res) => {
     res.json({ commands: await Command.find({ sessionId: hub.session.sessionId }).sort({ ts: -1 }).limit(100).lean() });
   }));

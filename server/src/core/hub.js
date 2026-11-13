@@ -9,6 +9,7 @@ import { RaceState } from './raceState.js';
 import { AnomalyEngine } from './anomaly.js';
 import { StrategyEngine } from './strategy.js';
 import { Weather } from './weather.js';
+import { Director } from './director.js';
 import { Sequencer } from '../ingest/sequencer.js';
 import { TokenBuckets } from '../ingest/tokenBucket.js';
 import { validateFrame } from '../ingest/validate.js';
@@ -52,6 +53,7 @@ export class Hub extends EventEmitter {
     this.strategy = new StrategyEngine({ race: this.race, weather: this.weather, getSession: () => this.session });
     this.rejections = new Map();
     this.timers = [];
+    this.director = new Director(this, { enabled: config.demoDirector });
   }
 
   start() {
@@ -73,6 +75,7 @@ export class Hub extends EventEmitter {
 
   stop() {
     this.timers.forEach(clearInterval);
+    this.director.stop();
     return this.writer.close();
   }
 
@@ -313,7 +316,7 @@ export class Hub extends EventEmitter {
     return {
       sessionId: s.sessionId, type: s.type, name: s.name, status: s.status, trackStatus: s.trackStatus,
       segment: seg ? { index: s.segment, name: seg.name, advance: seg.advance, total: QUALI_FORMAT.length } : null,
-      endsAt: s.endsAt, chequered: s.chequered, grid: s.grid,
+      endsAt: s.endsAt, chequered: s.chequered, grid: s.grid, director: this.director?.enabled ?? false,
       totalLaps: s.totalLaps, lap: leader ? Math.max(1, Math.min(leader.lap, s.totalLaps)) : 0,
       startedAt: s.startedAt, finishedAt: s.finishedAt, winner: s.winner, simHz: s.simHz,
       fastest: this.race.fastest,

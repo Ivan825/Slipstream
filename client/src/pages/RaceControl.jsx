@@ -52,6 +52,10 @@ export default function RaceControl() {
               ))}
             </div>
             <p className="mu" style={{ margin: 0, fontSize: 12 }}>The race grid is taken from the latest finished qualifying session.</p>
+            <label className="row" style={{ background: 'var(--bg-2)', padding: '8px 10px', borderLeft: `3px solid ${session?.director ? 'var(--grn)' : 'var(--ln)'}` }}>
+              <input type="checkbox" checked={!!session?.director} onChange={(e) => call(`Demo director ${e.target.checked ? 'on' : 'off'}`, '/control/director', { enabled: e.target.checked })} />
+              <span><b>Demo director</b><span className="mu" style={{ display: 'block', fontSize: 11.5 }}>Plays a race storyline: overheating, rain, puncture, safety car, brake fade, VSC</span></span>
+            </label>
             <div className="row">
               {session?.status === 'paused'
                 ? <button className="btn" onClick={() => call('Session resumed', '/control/session', { action: 'resume' })}>Resume</button>

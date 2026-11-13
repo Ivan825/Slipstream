@@ -18,6 +18,7 @@ export const config = {
   practiceMinutes: num(process.env.PRACTICE_MINUTES, 15),
   qualiScale: num(process.env.QUALI_SCALE, 1),
   randomWeather: bool(process.env.RANDOM_WEATHER, true),
+  demoDirector: bool(process.env.DEMO_DIRECTOR, false),
   raceLaps: num(process.env.RACE_LAPS, 36),
   telemetryTtlMin: num(process.env.TELEMETRY_TTL_MIN, 30),
 
