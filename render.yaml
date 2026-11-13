@@ -7,7 +7,8 @@ services:
     plan: free
     # closest Render region to the Atlas cluster (AWS Mumbai, ap-south-1)
     region: singapore
-    buildCommand: npm ci && VITE_API_URL= npm run build
+    # NODE_ENV=production would skip devDependencies (Vite), so include them for the build
+    buildCommand: npm ci --include=dev && VITE_API_URL= npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
