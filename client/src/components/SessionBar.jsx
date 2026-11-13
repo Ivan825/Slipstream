@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSession, useMetrics } from '../store/stores.js';
+import { useSession, useMetrics, useUI } from '../store/stores.js';
+import { useReplay } from '../store/replay.js';
+import { formatLapTime } from '@slipstream/shared';
 import { useNow } from '../lib/hooks.js';
 import { race } from '../lib/live.js';
 import { SESSION_LABEL } from '@slipstream/shared';
@@ -22,7 +24,40 @@ export const clockText = (ms) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
+const REAL_FLAG = { GREEN: ['TRACK CLEAR', 'GREEN'], YELLOW: ['YELLOW FLAG', 'YELLOW'], 'DOUBLE YELLOW': ['DOUBLE YELLOW', 'YELLOW'], RED: ['RED FLAG', 'RED'], SC: ['SAFETY CAR', 'SC'], VSC: ['VIRTUAL SAFETY CAR', 'VSC'], CHEQUERED: ['CHEQUERED FLAG', 'CHQ'] };
+
+/** the session bar when the app follows a real session (OpenF1) */
+function RealSessionBar() {
+  const { meta, state, rows } = useReplay();
+  const snap = useMetrics((m) => m.snap);
+  useNow(500);
+  if (!meta || !state.loaded) return <div className="sessbar"><div><small>Real session</small><b className="shimmer" style={{ width: 200, height: 18 }} /></div></div>;
+  const [flagText, flagCls] = REAL_FLAG[state.flag] || [state.flag || 'TRACK CLEAR', 'GREEN'];
+  const w = state.weather;
+  const leaderLap = rows?.[0]?.lap || 0;
+  const best = state.bestLap ? meta.drivers.find((d) => d.n === state.bestLap.n) : null;
+  return (
+    <div className="sessbar">
+      <div className="sb-gp"><span className="tag" style={{ background: state.live ? 'var(--red)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'LIVE' : 'REAL'}</span><div><small>{meta.circuit} · OpenF1 {state.live ? 'live feed' : 'historical feed'}</small><b>{meta.year} {meta.country} · {meta.type}</b></div></div>
+      {/Race|Sprint$/.test(meta.type)
+        ? <div className="sb-lap"><small>Lap</small><b>{leaderLap}</b></div>
+        : <div className="sb-lap"><small>Session clock</small><b className="clock">{clockText(state.t - state.from)}</b></div>}
+      <span className={`track-status ts-${flagCls}`}>{flagText}</span>
+      {w && <div className="sb-wx"><span><small>Air</small><b>{w.air}°C</b></span><span><small>Track</small><b>{w.track}°C</b></span><span><small>Rain</small><b style={{ color: w.rain ? 'var(--cyan)' : undefined }}>{w.rain ? 'YES' : 'NO'}</b></span></div>}
+      {best && <div><small>Fastest lap</small><b className="mono" style={{ color: 'var(--pur)', fontSize: 15 }}>{best.code} {formatLapTime(state.bestLap.time)}</b></div>}
+      <div><small>{state.buffering ? 'Buffering' : state.live ? 'Following live' : `Playing ${state.speed}×`}</small><b className="mono" style={{ fontSize: 15 }}>{new Date(state.t).toISOString().slice(11, 19)} UTC</b></div>
+      <div className="sb-eps"><span><small>Events in / s</small><br /><b>{snap?.rates?.received ?? 0}</b></span></div>
+    </div>
+  );
+}
+
 export default function SessionBar() {
+  const source = useUI((x) => x.source);
+  if (source.kind === 'real') return <RealSessionBar />;
+  return <SimSessionBar />;
+}
+
+function SimSessionBar() {
   const s = useSession((x) => x.session);
   const snap = useMetrics((m) => m.snap);
   const now = useNow(500);

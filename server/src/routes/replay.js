@@ -46,6 +46,39 @@ export function replayRouter(hub) {
     }
   });
 
+  /**
+   * Analysis of a real session from its timing events: laps (with position at the
+   * line), stints, pit stops, speed traps. The client filters by the replay clock
+   * so a historical session unfolds as if live.
+   */
+  r.get('/:key/analysis', async (req, res) => {
+    try {
+      let ch = hub.replays.get(req.params.key);
+      if (!ch) ch = await hub.replays.open(req.params.key === 'live' ? 'live' : Number(req.params.key), { live: req.params.key === 'live' });
+      const events = ch.events || [];
+      const posBy = new Map();
+      for (const e of events) if (e.type === 'position') {
+        let a = posBy.get(e.data.n);
+        if (!a) { a = []; posBy.set(e.data.n, a); }
+        a.push([e.t, e.data.pos]);
+      }
+      const posAt = (n, t) => {
+        const a = posBy.get(n);
+        if (!a?.length) return null;
+        let lo = 0, hi = a.length - 1, best = null;
+        while (lo <= hi) { const m = (lo + hi) >> 1; if (a[m][0] <= t) { best = a[m][1]; lo = m + 1; } else hi = m - 1; }
+        return best;
+      };
+      const laps = events.filter((e) => e.type === 'lap').map((e) => ({
+        n: e.data.n, lap: e.data.lap, t: e.t, time: e.data.time, s: e.data.s, st: e.data.st ?? null, pitOut: !!e.data.pitOut, pos: posAt(e.data.n, e.t + 500)
+      }));
+      const pits = events.filter((e) => e.type === 'pit').map((e) => ({ n: e.data.n, lap: e.data.lap, duration: e.data.duration, t: e.t }));
+      res.json({ key: ch.meta.key, name: ch.meta.name, type: ch.meta.type, drivers: ch.meta.drivers, stints: ch.meta.stints, laps, pits, from: ch.from, to: ch.to });
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
   r.get('/:key/state', (req, res) => {
     const ch = hub.replays.get(req.params.key);
     if (!ch) return res.status(404).json({ error: 'channel not open' });

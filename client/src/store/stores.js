@@ -75,6 +75,11 @@ const uiLoad = () => { try { return JSON.parse(localStorage.getItem(UI_KEY)) || 
 const uiSave = (v) => { try { localStorage.setItem(UI_KEY, JSON.stringify(v)); } catch { /* ignore */ } };
 const ui0 = uiLoad();
 export const useUI = create((set, get) => ({
+  // which data the whole app shows: the simulated weekend or a real session (OpenF1)
+  source: ui0.source || { kind: 'sim' },
+  setSource(source) { set({ source }); uiSave({ ...uiLoad(), source }); },
+  realDriver: ui0.realDriver || null,
+  setRealDriver(n) { set({ realDriver: n }); uiSave({ ...uiLoad(), realDriver: n }); },
   selected: ui0.selected || null,
   sound: !!ui0.sound,
   mapMode: ui0.mapMode || 'speed',

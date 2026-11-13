@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 /** Real-session replay state. Positions are mutable (read by the canvas), the rest is React state. */
 export const replayCars = new Map(); // n -> { x, y, px, py, t, pt, v, g, thr, brk, drs, rpm }
-export const replayTrace = new Map(); // n -> [{t, v, thr, brk, g}] rolling ~60 s
+export const replayTrace = new Map(); // n -> [{t, v, thr, brk, g, rpm, drs}] rolling ~120 s
 export const replayClock = { t: 0, at: 0, speed: 1, playing: true };
 
 export function onReplayFrame(f) {
@@ -15,9 +15,9 @@ export function onReplayFrame(f) {
     else replayCars.set(n, { x, y, px: x, py: y, t: now, pt: now - 200, v, g, thr, brk, drs, rpm });
     let tr = replayTrace.get(n);
     if (!tr) { tr = []; replayTrace.set(n, tr); }
-    if (!tr.length || f.t > tr[tr.length - 1].t) tr.push({ t: f.t, v, thr, brk, g });
+    if (!tr.length || f.t > tr[tr.length - 1].t) tr.push({ t: f.t, v, thr, brk, g, rpm, drs });
     else if (f.t < tr[tr.length - 1].t) tr.length = 0; // seek or loop
-    while (tr.length && f.t - tr[0].t > 60_000) tr.shift();
+    while (tr.length && f.t - tr[0].t > 120_000) tr.shift();
   }
 }
 
