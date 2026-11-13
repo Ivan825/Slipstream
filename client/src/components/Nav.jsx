@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useReplay } from '../store/replay.js';
-import { useAuth } from '../store/auth.js';
+import { useAuth, simRole } from '../store/auth.js';
 import { useSession, useUI, teamOf } from '../store/stores.js';
 import { TEAM_BY_ID } from '@slipstream/shared';
 
@@ -19,7 +19,7 @@ export default function Nav() {
   const connected = useSession((s) => s.connected);
   const latency = useSession((s) => s.latencyMs);
   const { sound, toggleSound, setPalette } = useUI();
-  const role = user?.role || 'viewer';
+  const role = simRole(user); // what the simulator lets this account do
   const source = useUI((s) => s.source);
   const setSource = useUI((s) => s.setSource);
   const lastReal = useUI((s) => s.lastReal);
@@ -29,8 +29,10 @@ export default function Nav() {
   const real = source.kind === 'real';
   const toSim = () => { useUI.setState({ lastReal: source }); setSource({ kind: 'sim' }); nav('/pitwall'); };
   const toReal = () => { if (lastReal?.key) { setSource(lastReal); nav('/pitwall'); } else nav('/real'); };
-  const who = role === 'race_control' ? 'RACE CONTROL' : role === 'engineer' ? `ENGINEER · ${TEAM_BY_ID[user.team]?.name.toUpperCase()}` : 'GUEST';
+  const who = role === 'race_control' ? 'RACE CONTROL' : role === 'engineer' ? `ENGINEER · ${TEAM_BY_ID[user.team]?.name.toUpperCase()}` : user?.role === 'crew' ? `CREW · ${user.team.toUpperCase()}` : 'GUEST';
   const initials = (user?.username || 'GU').slice(0, 2).toUpperCase();
+  // a crew's private mock can't stay open once signed out
+  const signOut = () => { if (source.mock) setSource({ kind: 'sim' }); logout(); nav('/'); };
 
   return (
     <header className="nav">
@@ -57,7 +59,7 @@ export default function Nav() {
         <button className="icon-btn" onClick={toggleSound} aria-pressed={sound} title="Team-radio sounds">{sound ? 'Sound on' : 'Sound off'}</button>
         <span className={`live-pill ${connected ? '' : 'off'}`} title={latency != null ? `round trip ${latency} ms` : ''}><i />{connected ? 'LIVE' : 'OFFLINE'}</span>
         {user
-          ? <><span className="hide-sm">{who}</span><button className="avatar" onClick={logout} title="Sign out">{initials}</button></>
+          ? <><span className="hide-sm">{who}</span><button className="avatar" onClick={signOut} title="Sign out">{initials}</button></>
           : <button className="btn sm red" onClick={() => nav('/login')} title="Team engineers and race control">Sign in</button>}
       </div>
     </header>

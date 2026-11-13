@@ -181,7 +181,11 @@ Idle channels close themselves, saving a mock's clock first.
 
 **Numbers, not claims.** A Systems page shows live ingest and broadcast rates, latency percentiles, duplicates, reordered and late frames, DB batch timing, back-pressured clients and event-loop lag. The [stress test](docs/STRESS_TEST.md) records **5,359 events/s from 120 sources with 500 dashboards connected, at a position-frame latency of 11 ms p50 and 23 ms p95**, with nothing shed.
 
-**Roles.** In the simulator, race control sees everything and an engineer sees full telemetry, alerts and strategy for their own team's two cars only, enforced on every REST call and every room join. Real sessions use public data, so they need no account.
+**Roles.**
+
+- **Team pit crew** (one account per real team): works live and mock sessions on real timing, always for its own team's cars. A crew's mock sessions and call logs are private to that team: other crews and guests get a 403 on every REST call and are refused the mock's Socket.IO room. Crew-mates see each other's mocks on the launcher, and each call is signed with the account.
+- **Guest** (no account): can run mock sessions too, but a guest mock is open to anyone holding its link.
+- **Simulator:** race control sees everything; an engineer sees full telemetry, alerts and strategy for their own simulator team's two cars only, enforced on every REST call and every room join.
 
 ## See it
 
@@ -226,15 +230,15 @@ The screenshots are real. They were captured from a running server on a laptop.
 
 **Live:** https://slipstream-p92j.onrender.com. It's on a free plan, so if nobody has visited for a while the first load can take up to a minute.
 
-No sign-in is needed. Pick your team on the launcher, then:
+Sign in as your team's crew (for example `mclaren` / `slipstream`), or pick a team on the launcher without signing in. Then:
 
 - **Live session:** the Formula 1 session running right now (needs an OpenF1 key on the server; otherwise it shows the next session and a countdown).
 - **Mock session:** choose a past race and a starting lap, then **Start mock session**. Use **Strategy and calls** to make your pit calls, **Share with crew** to send the link, and **Debrief** to see how your calls compare with what the team really did.
 - **Simulator:** a 20-car weekend with deep telemetry, alerts and the strategist.
 
-Sign in (top right) to take a seat on the simulator's pit wall:
+The simulator has its own seats:
 
-- **Team engineer:** pick a team, password `slipstream`. Full telemetry, ghost lap, alerts and the strategist for that team's two cars.
+- **Simulator engineer:** pick a simulator team, password `slipstream`. Full telemetry, ghost lap, alerts and the strategist for that team's two cars.
 - **Race control:** `control` / `slipstream`. Start practice, qualifying or a race; set flags; schedule rain; inject incidents; change the stream rate.
 
 The hosted instance streams 20 cars at 10 Hz to fit the free CPU. Locally they stream at 20 Hz.
@@ -252,12 +256,13 @@ npm run dev          # server :4000 + simulator + dashboard on http://localhost:
 
 Or start everything with one command: `docker compose up --build`, then open http://localhost:4000.
 
-Real sessions need no account. To sign in as an engineer or race control, use a demo account. The password for every account is `slipstream`.
+Demo accounts all use the password `slipstream`.
 
 | Role | Username |
 |---|---|
-| Race control | `control` |
-| Engineer | the team id: `kestrel`, `vortex`, `ardent`, `halcyon`, `solaris`, `monarch`, `nordwind`, `verdant`, `azzurra`, `basalt` |
+| Team pit crew (real timing) | `mclaren`, `ferrari`, `redbull`, `mercedes`, `astonmartin`, `alpine`, `williams`, `racingbulls`, `audi`, `haas`, `cadillac` |
+| Race control (simulator) | `control` |
+| Simulator engineer | the team id: `kestrel`, `vortex`, `ardent`, `halcyon`, `solaris`, `monarch`, `nordwind`, `verdant`, `azzurra`, `basalt` |
 | Guest | no sign-in |
 
 A race starts on its own. **For a demo:**

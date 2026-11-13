@@ -1,5 +1,5 @@
 import { EV, NS, ROOMS, CAR_BY_ID, TEAM_BY_ID, CARS } from '@slipstream/shared';
-import { verifyToken, VIEWER, canSeeCar, canSeeTeam } from '../auth.js';
+import { verifyToken, VIEWER, canSeeCar, canSeeTeam, canUseMock } from '../auth.js';
 import { Alert } from '../models/index.js';
 import { log } from '../lib/log.js';
 
@@ -41,12 +41,14 @@ export function attachLive(io, hub, broadcaster) {
         if (typeof room !== 'string') continue;
         if (room === ROOMS.RACE) {
           // spectators and back-pressured clients get the 2 Hz feed
-          const target = user.role === 'viewer' || socket.data.degraded ? ROOMS.RACE_2HZ : ROOMS.RACE;
+          const full = user.role === 'engineer' || user.role === 'race_control';
+          const target = !full || socket.data.degraded ? ROOMS.RACE_2HZ : ROOMS.RACE;
           socket.join(target); joined.push(target);
         } else if (room.startsWith('replay:')) {
           // real sessions are public data; the channel must have been opened first
           const ch = hub.replays?.get(room.slice(7));
-          if (ch) { socket.join(room); joined.push(room); replay = ch.snapshot(); } else denied.push(room);
+          if (ch && !canUseMock(user, ch.mock)) denied.push(room);
+          else if (ch) { socket.join(room); joined.push(room); replay = ch.snapshot(); } else denied.push(room);
         } else if (room === ROOMS.TIMING || room === ROOMS.METRICS) {
           socket.join(room); joined.push(room);
           if (room === ROOMS.TIMING) timing = broadcaster.timingSnapshot();

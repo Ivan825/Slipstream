@@ -180,7 +180,7 @@ flowchart LR
 - **Channels.**
   - Each session is a Socket.IO room with its own clock. Everyone in that room sees the same moment.
   - Anyone can open a shared channel (rate-limited) and drive its clock, like a watch party.
-  - A **mock session** gets a private channel `m-<id>` (room `replay:m-<id>`) with its own clock: it starts paused at the chosen lap and never loops. The id is unguessable and works as the crew's link. The `Mock` document keeps the team, the clock and every call the crew logs (`POST /api/mocks/:id/calls`, stamped server-side with the clock, lap, position and tyres). Mocks expire 60 days after last use.
+  - A **mock session** gets a private channel `m-<id>` (room `replay:m-<id>`) with its own clock: it starts paused at the chosen lap and never loops. A mock started by a signed-in crew (role `crew`, one account per real team) belongs to that team: every route and the room join check it, so other crews and guests are refused. A guest's mock has an unguessable id that works as its link. The `Mock` document keeps the team, the clock and every call the crew logs (`POST /api/mocks/:id/calls`, stamped server-side with the clock, lap, position and tyres). Mocks expire 60 days after last use.
   - Channels with no viewers for 3 minutes close; a mock's clock is saved first, and opening its link again reopens it where the crew left off.
   - The team watcher (alerts) and the debrief run in the browser on the same analysis data as the strategist, so they behave the same live, in a mock or in a replay.
   - Joining mid-session returns an exact snapshot: position, gaps, laps, sectors, tyres, flag and weather, rebuilt by re-applying events up to the clock.

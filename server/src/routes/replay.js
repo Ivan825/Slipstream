@@ -5,20 +5,27 @@ import { randomBytes } from 'node:crypto';
 import { ReplaySession, Mock } from '../models/index.js';
 import { catalog, liveAvailable } from '../openf1/client.js';
 import { VERSION } from '../openf1/source.js';
+import { canUseMock, isCrew } from '../auth.js';
 
 const MOCK_ID = /^[a-z0-9]{8,16}$/;
 
+const otherCrew = () => Object.assign(new Error('this mock session belongs to another team\'s crew'), { status: 403 });
+
 /** the channel for a key: a shared session, the live feed, or a crew's mock (reopened from MongoDB if it was closed) */
-async function resolve(hub, key) {
+async function resolve(hub, key, user) {
   const k = String(key);
   const open = hub.replays.get(k);
-  if (open) return open;
+  if (open) {
+    if (open.mock && !canUseMock(user, open.mock)) throw otherCrew();
+    return open;
+  }
   if (k.startsWith('m-')) {
     const id = k.slice(2);
     if (!MOCK_ID.test(id)) throw Object.assign(new Error('bad mock id'), { status: 400 });
     const m = await Mock.findById(id).lean();
     if (!m) throw Object.assign(new Error('this mock session has expired or never existed'), { status: 404 });
-    return hub.replays.openMock({ id, key: m.key, startAt: m.startAt, t: m.t, team: m.team });
+    if (!canUseMock(user, m)) throw otherCrew();
+    return hub.replays.openMock({ id, key: m.key, startAt: m.startAt, t: m.t, team: m.team, crew: m.crew });
   }
   if (k === 'live') return hub.replays.open('live', { live: true });
   if (!/^\d+$/.test(k)) throw Object.assign(new Error('unknown session'), { status: 400 });
@@ -57,7 +64,7 @@ export function replayRouter(hub) {
     const p = z.object({ key: z.union([z.number().int().positive(), z.literal('live'), z.string().regex(/^m-[a-z0-9]{8,16}$/)]) }).safeParse(req.body);
     if (!p.success) return res.status(400).json({ error: 'key (OpenF1 session_key), "live" or a mock id required' });
     if (typeof p.data.key === 'string' && p.data.key.startsWith('m-')) {
-      try { return res.json((await resolve(hub, p.data.key)).snapshot()); } catch (e) { return fail(res, e); }
+      try { return res.json((await resolve(hub, p.data.key, req.user)).snapshot()); } catch (e) { return fail(res, e); }
     }
     const live = p.data.key === 'live';
     if (live && !liveAvailable()) {
@@ -78,7 +85,7 @@ export function replayRouter(hub) {
    */
   r.get('/:key/analysis', async (req, res) => {
     try {
-      const ch = await resolve(hub, req.params.key);
+      const ch = await resolve(hub, req.params.key, req.user);
       const events = ch.events || [];
       const posBy = new Map();
       for (const e of events) if (e.type === 'position') {
@@ -104,6 +111,7 @@ export function replayRouter(hub) {
   r.get('/:key/state', (req, res) => {
     const ch = hub.replays.get(req.params.key);
     if (!ch) return res.status(404).json({ error: 'channel not open' });
+    if (ch.mock && !canUseMock(req.user, ch.mock)) return res.status(403).json({ error: otherCrew().message });
     res.json(ch.snapshot());
   });
 
@@ -111,7 +119,7 @@ export function replayRouter(hub) {
   // anyone watching can drive the channel's shared clock (rate-limited), like a watch party
   r.post('/:key/control', controlLimiter, async (req, res) => {
     let ch;
-    try { ch = await resolve(hub, req.params.key); } catch (e) { return fail(res, e); }
+    try { ch = await resolve(hub, req.params.key, req.user); } catch (e) { return fail(res, e); }
     const p = z.object({ action: z.enum(['play', 'pause', 'seek', 'speed', 'restart']), t: z.number().min(0).optional(), speed: z.number().min(0.25).max(16).optional() }).safeParse(req.body);
     if (!p.success) return res.status(400).json({ error: 'invalid control' });
     try { res.json(ch.control(p.data)); } catch (e) { res.status(409).json({ error: e.message }); }
@@ -135,8 +143,11 @@ export function mockRouter(hub) {
     const p = z.object({ key: z.number().int().positive(), lap: z.number().int().min(1).max(100).optional(), team }).safeParse(req.body);
     if (!p.success) return res.status(400).json({ error: 'key (a past OpenF1 session) required' });
     const id = randomBytes(8).toString('hex').slice(0, 12);
+    // a signed-in crew's mock is theirs alone, on their own team
+    const crew = isCrew(req.user) ? req.user.team : null;
+    const teamName = crew || p.data.team || null;
     try {
-      const ch = await hub.replays.openMock({ id, key: p.data.key, team: p.data.team });
+      const ch = await hub.replays.openMock({ id, key: p.data.key, team: teamName, crew });
       let startAt = ch.from;
       if (p.data.lap && p.data.lap > 1) {
         const ls = ch.events.find((e) => e.type === 'lapstart' && e.data.lap === p.data.lap);
@@ -145,17 +156,20 @@ export function mockRouter(hub) {
       ch.mock.startAt = startAt;
       ch.seek(startAt);
       const now = new Date();
-      await Mock.create({ _id: id, key: ch.meta.key, name: ch.meta.name, team: p.data.team || null, from: ch.from, to: ch.to, startAt, t: startAt, calls: [], createdAt: now, updatedAt: now });
+      await Mock.create({ _id: id, key: ch.meta.key, name: ch.meta.name, team: teamName, crew, from: ch.from, to: ch.to, startAt, t: startAt, calls: [], createdAt: now, updatedAt: now });
       res.status(201).json({ id, ch: ch.ch(), snapshot: ch.snapshot() });
     } catch (e) { fail(res, e); }
   });
 
-  // a crew's own list: the browser keeps the ids of the mocks it started or was sent
+  // a signed-in crew sees every mock its team has run; a guest browser keeps the ids of the mocks it started or was sent
   r.get('/', async (req, res, next) => {
     try {
       const ids = String(req.query.ids || '').split(',').filter((x) => MOCK_ID.test(x)).slice(0, 40);
-      if (!ids.length) return res.json({ mocks: [] });
-      const list = await Mock.find({ _id: { $in: ids } }).sort({ updatedAt: -1 }).lean();
+      const or = [];
+      if (ids.length) or.push({ _id: { $in: ids } });
+      if (isCrew(req.user)) or.push({ crew: req.user.team });
+      if (!or.length) return res.json({ mocks: [] });
+      const list = (await Mock.find({ $or: or }).sort({ updatedAt: -1 }).limit(60).lean()).filter((m) => canUseMock(req.user, m));
       res.json({ mocks: list.map(({ calls, ...m }) => ({ ...m, id: m._id, calls: calls?.length || 0, open: !!hub.replays.get(`m-${m._id}`) })) });
     } catch (e) { next(e); }
   });
@@ -165,6 +179,7 @@ export function mockRouter(hub) {
       if (!MOCK_ID.test(req.params.id)) return res.status(400).json({ error: 'bad mock id' });
       const m = await Mock.findById(req.params.id).lean();
       if (!m) return res.status(404).json({ error: 'this mock session has expired or never existed' });
+      if (!canUseMock(req.user, m)) return res.status(403).json({ error: otherCrew().message });
       const ch = hub.replays.get(`m-${m._id}`);
       res.json({ ...m, id: m._id, t: ch ? ch.t : m.t });
     } catch (e) { next(e); }
@@ -174,8 +189,11 @@ export function mockRouter(hub) {
     const p = z.object({ team, ended: z.boolean().optional() }).safeParse(req.body);
     if (!p.success || !MOCK_ID.test(req.params.id)) return res.status(400).json({ error: 'invalid update' });
     try {
+      const cur = await Mock.findById(req.params.id, { crew: 1 }).lean();
+      if (!cur) return res.status(404).json({ error: 'not found' });
+      if (!canUseMock(req.user, cur)) return res.status(403).json({ error: otherCrew().message });
+      if (cur.crew) delete p.data.team; // a crew's mock always runs its own team
       const m = await Mock.findByIdAndUpdate(req.params.id, { ...p.data, updatedAt: new Date() }, { new: true }).lean();
-      if (!m) return res.status(404).json({ error: 'not found' });
       const ch = hub.replays.get(`m-${m._id}`);
       if (ch && p.data.team !== undefined) ch.mock.team = p.data.team;
       res.json({ ok: true });
@@ -194,10 +212,11 @@ export function mockRouter(hub) {
     }).safeParse(req.body);
     if (!p.success || !MOCK_ID.test(req.params.id)) return res.status(400).json({ error: 'invalid call' });
     try {
-      const ch = await resolve(hub, `m-${req.params.id}`);
+      const ch = await resolve(hub, `m-${req.params.id}`, req.user);
       const car = ch.carNow(p.data.n);
       if (!car) return res.status(400).json({ error: 'that car is not in this session' });
-      const call = { id: randomBytes(4).toString('hex'), t: ch.t, at: new Date(), ...p.data, ...car };
+      const by = req.user?.id ? req.user.name || req.user.username : p.data.by; // signed-in calls carry the account's name
+      const call = { id: randomBytes(4).toString('hex'), t: ch.t, at: new Date(), ...p.data, by, ...car };
       const m = await Mock.findOneAndUpdate({ _id: req.params.id, 'calls.299': { $exists: false } }, { $push: { calls: call }, t: ch.t, updatedAt: new Date() }, { new: true, projection: { _id: 1 } }).lean();
       if (!m) return res.status(409).json({ error: 'call log is full (300 calls)' });
       res.status(201).json(call);
@@ -207,6 +226,8 @@ export function mockRouter(hub) {
   r.delete('/:id/calls/:cid', async (req, res, next) => {
     if (!MOCK_ID.test(req.params.id) || !/^[a-f0-9]{8}$/.test(req.params.cid)) return res.status(400).json({ error: 'bad id' });
     try {
+      const cur = await Mock.findById(req.params.id, { crew: 1 }).lean();
+      if (cur && !canUseMock(req.user, cur)) return res.status(403).json({ error: otherCrew().message });
       await Mock.updateOne({ _id: req.params.id }, { $pull: { calls: { id: req.params.cid } }, updatedAt: new Date() });
       res.json({ ok: true });
     } catch (e) { next(e); }

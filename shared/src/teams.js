@@ -40,3 +40,21 @@ export const CAR_BY_ID = Object.fromEntries(CARS.map((c) => [c.id, c]));
 export const CAR_INDEX = Object.fromEntries(CARS.map((c, i) => [c.id, i]));
 export const carsOfTeam = (teamId) => CARS.filter((c) => c.team === teamId);
 export const teamColor = (carId) => TEAM_BY_ID[CAR_BY_ID[carId]?.team]?.color ?? '#888888';
+
+/**
+ * Real Formula 1 teams, for pit-crew accounts on real timing (OpenF1). The id is the
+ * demo crew's username; the name is matched against OpenF1 team names by family.
+ */
+export const REAL_TEAMS = [
+  { id: 'mclaren', name: 'McLaren', short: 'MCL', color: '#ff8000' },
+  { id: 'ferrari', name: 'Ferrari', short: 'FER', color: '#e8002d' },
+  { id: 'redbull', name: 'Red Bull Racing', short: 'RBR', color: '#3671c6' },
+  { id: 'mercedes', name: 'Mercedes', short: 'MER', color: '#27f4d2' },
+  { id: 'astonmartin', name: 'Aston Martin', short: 'AMR', color: '#229971' },
+  { id: 'alpine', name: 'Alpine', short: 'ALP', color: '#0093cc' },
+  { id: 'williams', name: 'Williams', short: 'WIL', color: '#64c4ff' },
+  { id: 'racingbulls', name: 'Racing Bulls', short: 'RB', color: '#6692ff' },
+  { id: 'audi', name: 'Audi', short: 'AUD', color: '#bb0a30' },
+  { id: 'haas', name: 'Haas F1 Team', short: 'HAA', color: '#b6babd' },
+  { id: 'cadillac', name: 'Cadillac', short: 'CAD', color: '#aaaaad' }
+];

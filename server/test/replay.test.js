@@ -79,3 +79,15 @@ test('a mock channel has its own id and room, and restarts to where the mock beg
   assert.ok(sent.every(([room, , p]) => room === 'replay:m-abc123def456' && p.k === 'm-abc123def456'));
   assert.equal(e.snapshot().meta.mock.team, 'McLaren');
 });
+
+test('a crew mock is private to that crew; a guest mock is open to its link', async () => {
+  const { canUseMock } = await import('../src/auth.js');
+  const mcl = { role: 'crew', team: 'McLaren' }, fer = { role: 'crew', team: 'Ferrari' }, guest = { role: 'viewer', team: null };
+  const crewMock = { crew: 'McLaren' }, guestMock = { crew: null };
+  assert.equal(canUseMock(mcl, crewMock), true);
+  assert.equal(canUseMock(fer, crewMock), false);
+  assert.equal(canUseMock(guest, crewMock), false);
+  assert.equal(canUseMock({ role: 'engineer', team: 'McLaren' }, crewMock), false, 'a simulator engineer is not a crew');
+  assert.equal(canUseMock(guest, guestMock), true);
+  assert.equal(canUseMock(fer, guestMock), true);
+});

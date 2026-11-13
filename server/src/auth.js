@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { TEAMS, CAR_BY_ID } from '@slipstream/shared';
+import { TEAMS, REAL_TEAMS, CAR_BY_ID } from '@slipstream/shared';
 import { config } from './config.js';
 import { User } from './models/index.js';
 import { log } from './lib/log.js';
@@ -48,12 +48,22 @@ export function canSeeTeam(user, teamId) {
   return user.role === 'race_control' || (user.role === 'engineer' && user.team === teamId);
 }
 
-/** Idempotent demo accounts: race control + one engineer per team. */
+/** a real team's pit crew (works on real timing: live sessions and mocks) */
+export const isCrew = (user) => user?.role === 'crew' && !!user.team;
+
+/** may this user open a mock? A crew's mocks are theirs alone; a guest mock is open to anyone with the link. */
+export function canUseMock(user, mock) {
+  if (!mock?.crew) return true;
+  return isCrew(user) && user.team === mock.crew;
+}
+
+/** Idempotent demo accounts: race control, one engineer per simulator team, one crew per real team. */
 export async function ensureDemoUsers() {
   const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
   const users = [
     { username: 'control', displayName: 'Race Control', role: 'race_control', team: null },
-    ...TEAMS.map((t) => ({ username: t.id, displayName: `${t.name} engineer`, role: 'engineer', team: t.id }))
+    ...TEAMS.map((t) => ({ username: t.id, displayName: `${t.name} engineer`, role: 'engineer', team: t.id })),
+    ...REAL_TEAMS.map((t) => ({ username: t.id, displayName: `${t.name} crew`, role: 'crew', team: t.name }))
   ];
   let created = 0;
   for (const u of users) {

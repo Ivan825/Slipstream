@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { useNow } from '../lib/hooks.js';
-import { useAuth } from '../store/auth.js';
+import { useAuth, isCrew } from '../store/auth.js';
 import { useUI, useToasts } from '../store/stores.js';
 import { Mark } from '../components/Nav.jsx';
 import { TeamPicker } from '../components/TeamPicker.jsx';
@@ -45,9 +45,13 @@ export default function Home() {
       .then(([a, b]) => setSessions([...b.sessions, ...a.sessions]))
       .catch(() => setSessions([]));
     api('/replay/channels').then((d) => setLive(d.live)).catch(() => {});
-    const ids = myMockIds();
-    if (ids.length) api(`/mocks?ids=${ids.join(',')}`).then((d) => setMocks(d.mocks)).catch(() => {});
   }, []);
+  // a crew sees every mock its team has run; a guest sees the ones this browser started or was sent
+  useEffect(() => {
+    const ids = myMockIds();
+    if (!ids.length && !isCrew(user)) return setMocks([]);
+    api(`/mocks?ids=${ids.join(',')}`).then((d) => setMocks(d.mocks)).catch(() => {});
+  }, [user]);
 
   const { running, next, races } = useMemo(() => {
     const list = sessions || [];
@@ -95,7 +99,10 @@ export default function Home() {
           <div className="lbl" style={{ color: 'rgba(255,255,255,.7)' }}>Race engineering software</div>
           <h1>Run the pit wall</h1>
           <p>Strategy, telemetry and alerts for a race team, on real Formula 1 timing. Work the live session, rehearse on any past race as a mock session with your own clock and a debrief, or drill a full weekend in the simulator.</p>
-          <div className="row" style={{ marginTop: 14 }}><TeamPicker /></div>
+          <div className="row" style={{ marginTop: 14, gap: 12 }}>
+            <TeamPicker />
+            {!user && <button className="btn sm ghost" onClick={() => nav('/login')}>Sign in as your team's crew</button>}
+          </div>
         </div>
         <Mark size={90} />
       </div>
@@ -129,6 +136,7 @@ export default function Home() {
               <button className="btn red" style={{ flex: 1 }} disabled={!chosen || busy} onClick={launch}>{busy ? 'Preparing…' : 'Start mock session'}</button>
             </div>
             {!team && <span className="mu" style={{ fontSize: 12 }}>Tip: pick your team above so the strategist and alerts follow your cars.</span>}
+            {isCrew(user) && <span className="mu" style={{ fontSize: 12 }}>Private to the {user.team} crew: only your team's accounts can open it.</span>}
           </div>
         </div>
 
@@ -138,25 +146,25 @@ export default function Home() {
             <p className="mu" style={{ margin: 0, fontSize: 13 }}>A synthetic 20-car weekend with deep telemetry: tyre temperatures, brakes, fuel and ERS. Race control throws safety cars, rain and failures at the grid; engineers answer with live alerts and the pit-stop strategist.</p>
             <button className="btn red" onClick={openSim}>Open the simulator</button>
             {!user && <button className="btn ghost" onClick={() => nav('/login')}>Sign in as engineer or race control</button>}
-            {user && <span className="chip">signed in as {user.username} · {user.role.replace('_', ' ')}</span>}
+            {user && !isCrew(user) && <span className="chip">signed in as {user.username} · {user.role.replace('_', ' ')}</span>}
           </div>
         </div>
       </div>
 
       {mocks.length > 0 && (
         <div className="card">
-          <div className="card-h"><b>Your mock sessions</b><span className="chip">kept for 60 days · share a link to work as a crew</span></div>
+          <div className="card-h"><b>{isCrew(user) ? `${user.team} crew: mock sessions` : 'Your mock sessions'}</b><span className="chip">{isCrew(user) ? 'kept for 60 days · your crew only' : 'kept for 60 days · anyone with the link can open them'}</span></div>
           <div className="scroll"><table className="tbl">
             <thead><tr><th>Session</th><th>Team</th><th className="n">Calls</th><th className="n">Clock</th><th>Last used</th><th /></tr></thead>
             <tbody>
               {mocks.map((m) => (
                 <tr key={m.id}>
-                  <td><b>{m.name}</b></td><td>{m.team || <span className="mu">—</span>}</td><td className="n">{m.calls}</td>
+                  <td><b>{m.name}</b>{m.crew && <span className="chip" style={{ marginLeft: 8, fontSize: 9, padding: '0 5px' }}>CREW</span>}</td><td>{m.team || <span className="mu">—</span>}</td><td className="n">{m.calls}</td>
                   <td className="n">{Math.round(((m.t - m.from) / Math.max(1, m.to - m.from)) * 100)}%</td><td className="mu">{ago(m.updatedAt)}</td>
                   <td className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
                     <button className="btn sm red" onClick={() => resume(m)}>Resume</button>
                     <button className="btn sm" onClick={() => resume(m, '/debrief')}>Debrief</button>
-                    <button className="btn sm ghost" title="Remove from this list" onClick={() => { forgetMock(m.id); setMocks(mocks.filter((x) => x.id !== m.id)); }}>✕</button>
+                    {!m.crew && <button className="btn sm ghost" title="Remove from this list" onClick={() => { forgetMock(m.id); setMocks(mocks.filter((x) => x.id !== m.id)); }}>✕</button>}
                   </td>
                 </tr>
               ))}

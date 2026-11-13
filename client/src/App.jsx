@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useAuth, roleOf } from './store/auth.js';
+import { useAuth, roleOf, isCrew } from './store/auth.js';
 import { connectLive, useRooms } from './lib/live.js';
 import Nav from './components/Nav.jsx';
 import SessionBar from './components/SessionBar.jsx';
@@ -39,6 +39,10 @@ export default function App() {
   useEffect(() => {
     connectLive(auth.token); // anonymous sockets get the public viewer feed
   }, [auth.token]);
+  // a crew account always works its own team
+  useEffect(() => {
+    if (isCrew(auth.user) && useUI.getState().realTeam !== auth.user.team) useUI.getState().setRealTeam(auth.user.team);
+  }, [auth.user]);
 
   if (location.pathname === '/login') return <Login />;
   return <Shell role={role} location={location} />;

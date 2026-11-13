@@ -133,7 +133,7 @@ export class Broadcaster {
           if (Date.now() - s.data.okSince > 5000) {
             s.data.degraded = false;
             s.leave('degraded');
-            if (s.data.wasFull && s.data.user.role !== 'viewer') { s.leave(ROOMS.RACE_2HZ); s.join(ROOMS.RACE); }
+            if (s.data.wasFull && (s.data.user.role === 'engineer' || s.data.user.role === 'race_control')) { s.leave(ROOMS.RACE_2HZ); s.join(ROOMS.RACE); }
           }
         } else s.data.okSince = null;
       }

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { CARS, TEAMS, CAR_BY_ID, TRACK_INFO, COMPOUNDS, ALL_COMPOUNDS } from '@slipstream/shared';
+import { CARS, TEAMS, REAL_TEAMS, CAR_BY_ID, TRACK_INFO, COMPOUNDS, ALL_COMPOUNDS } from '@slipstream/shared';
 import { Lap, Alert, Session, Telemetry, Command } from '../models/index.js';
 import { login, signToken, requireRole, canSeeCar, canSeeTeam, DEMO_PASSWORD } from '../auth.js';
 import { analysisRouter } from './analysis.js';
@@ -35,7 +35,7 @@ export function apiRouter(hub) {
   r.get('/auth/me', (req, res) => res.json({ user: req.user }));
   r.get('/auth/demo', (_req, res) => res.json({
     password: DEMO_PASSWORD,
-    accounts: [{ username: 'control', role: 'race_control' }, ...TEAMS.map((t) => ({ username: t.id, role: 'engineer', team: t.id, name: t.name }))]
+    accounts: [{ username: 'control', role: 'race_control' }, ...TEAMS.map((t) => ({ username: t.id, role: 'engineer', team: t.id, name: t.name })), ...REAL_TEAMS.map((t) => ({ username: t.id, role: 'crew', team: t.name, name: t.name }))]
   }));
 
   /* ---------- HTTP ingest (for real devices and scripts without a socket client) ----------
@@ -129,6 +129,7 @@ export function apiRouter(hub) {
   /* ---------- alerts ---------- */
   r.get('/alerts', wrap(async (req, res) => {
     if (req.user.role === 'viewer') return res.status(401).json({ error: 'sign in to see alerts' });
+    if (req.user.role === 'crew') return res.json({ alerts: [] }); // simulator alerts belong to its engineers
     const filter = { sessionId: hub.session.sessionId };
     if (req.user.role !== 'race_control') filter.team = req.user.team;
     if (req.query.status === 'open') filter.acknowledged = false;

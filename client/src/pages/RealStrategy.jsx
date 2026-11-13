@@ -211,7 +211,7 @@ function CallLog({ drivers }) {
           <li key={c.id}>
             <i style={{ background: d?.color || '#888' }} />
             <div style={{ flex: 1 }}><div className="t"><span>{d?.code} · lap {c.lap} · P{c.pos} · {c.kind === 'box' ? `BOX ${c.compound}` : c.kind === 'stay' ? 'STAY OUT' : 'NOTE'}</span><span>{new Date(c.t).toISOString().slice(11, 19)}</span></div>
-              <div className="m">{c.advice ? `Strategist said: ${c.advice}` : ''}{c.by ? ` · ${c.by}` : ''} <button className="link-btn" onClick={() => remove(c.id)} title="Remove this call">undo</button></div></div>
+              <div className="m">{[c.advice && `Strategist said: ${c.advice}`, c.by].filter(Boolean).join(' · ')} <button className="link-btn" onClick={() => remove(c.id)} title="Remove this call">undo</button></div></div>
           </li>
         ); })}
       </ul>

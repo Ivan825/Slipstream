@@ -17,5 +17,9 @@ export const useAuth = create((set) => ({
   logout() { save(null); set({ token: null, user: null }); }
 }));
 
-// No sign-in needed to watch: anyone without a token is a viewer.
+// No sign-in needed for real sessions: anyone without a token is a guest (role viewer).
 export const roleOf = (s) => s.user?.role || 'viewer';
+/** a real team's pit crew: works on real timing, its mocks are private to the team */
+export const isCrew = (user) => user?.role === 'crew' && !!user.team;
+/** what the simulator lets this user do: engineers and race control get their seats, everyone else views */
+export const simRole = (user) => (user?.role === 'engineer' || user?.role === 'race_control' ? user.role : 'viewer');

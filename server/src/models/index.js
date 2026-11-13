@@ -8,7 +8,7 @@ const UserSchema = new Schema({
   username: { type: String, required: true, unique: true, lowercase: true, trim: true },
   passwordHash: { type: String, required: true },
   displayName: String,
-  role: { type: String, enum: ['race_control', 'engineer', 'viewer'], required: true },
+  role: { type: String, enum: ['race_control', 'engineer', 'crew', 'viewer'], required: true },
   team: { type: String, default: null }
 }, { timestamps: true });
 export const User = model('User', UserSchema);
@@ -147,8 +147,10 @@ export const ReplayEvent = model('ReplayEvent', ReplayEventSchema);
  * they made with what the strategist advised at that moment. Debriefed against what
  * really happened. Kept for 60 days after last use. */
 const MockSchema = new Schema({
-  _id: String, key: Number, name: String, team: String, from: Number, to: Number, startAt: Number, t: Number,
+  // crew: the real team whose crew owns this mock (only its signed-in crew can open it); null for a guest mock, open to anyone with the link
+  _id: String, key: Number, name: String, team: String, crew: String, from: Number, to: Number, startAt: Number, t: Number,
   calls: [Schema.Types.Mixed], ended: Boolean, createdAt: Date, updatedAt: Date
 }, { versionKey: false });
 MockSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 60 * 86400 });
+MockSchema.index({ crew: 1, updatedAt: -1 });
 export const Mock = model('Mock', MockSchema);

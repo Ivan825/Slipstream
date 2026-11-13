@@ -1,3 +1,5 @@
+import { REAL_TEAMS } from '@slipstream/shared';
+
 /**
  * Real teams in OpenF1 data. Team names change over the years (sponsors, rebrands),
  * so a crew's team is matched to a session by family, not exact string.
@@ -49,9 +51,4 @@ export function teamDrivers(meta, team) {
 }
 
 /** this season's teams, for picking before a session is open */
-export const CURRENT_TEAMS = [
-  { name: 'McLaren', color: '#FF8000' }, { name: 'Ferrari', color: '#E8002D' }, { name: 'Red Bull Racing', color: '#3671C6' },
-  { name: 'Mercedes', color: '#27F4D2' }, { name: 'Aston Martin', color: '#229971' }, { name: 'Alpine', color: '#0093CC' },
-  { name: 'Williams', color: '#64C4FF' }, { name: 'Racing Bulls', color: '#6692FF' }, { name: 'Audi', color: '#BB0A30' },
-  { name: 'Haas F1 Team', color: '#B6BABD' }, { name: 'Cadillac', color: '#AAAAAD' }
-];
+export const CURRENT_TEAMS = REAL_TEAMS;

@@ -54,7 +54,7 @@ On Render, open the service → **Environment** and set:
 CLIENT_ORIGIN=https://slipstream.vercel.app,https://slipstream-abcd.onrender.com
 ```
 
-Save. Render redeploys in about a minute. That's it: open the Vercel URL: real sessions and mock sessions need no account, and **Sign in** takes `control`, `kestrel` or any team id, with password `slipstream`.
+Save. Render redeploys in about a minute. That's it: open the Vercel URL: guests can run mock sessions without an account, and **Sign in** takes a crew (`mclaren`, `ferrari`, …), `control`, or a simulator team id such as `kestrel`, all with password `slipstream`.
 
 ## 5. Check it
 

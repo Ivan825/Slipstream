@@ -245,7 +245,7 @@ export class ReplayChannel {
   snapshot() {
     const { drivers, track, name, circuit, country, year, type, key, complete } = this.meta;
     return {
-      meta: { key, ch: this.ch(), name, circuit, country, year, type, drivers, track, complete, live: this.live, mock: this.mock ? { id: this.mock.id, team: this.mock.team } : null },
+      meta: { key, ch: this.ch(), name, circuit, country, year, type, drivers, track, complete, live: this.live, mock: this.mock ? { id: this.mock.id, team: this.mock.team, crew: this.mock.crew || null } : null },
       state: this.state(), rows: this.standings(), rc: this.st.rc.slice(-20).reverse(), frame: { ...this.frame(), k: this.ch() }
     };
   }
@@ -292,12 +292,12 @@ export class ReplayManager {
   }
 
   /** a crew's private channel for a mock session; reopened at its saved clock */
-  async openMock({ id, key, startAt, t, team }) {
+  async openMock({ id, key, startAt, t, team, crew = null }) {
     const cid = `m-${id}`;
     if (this.channels.has(cid)) return this.channels.get(cid);
     if (this.opening.has(cid)) return this.opening.get(cid);
     this.makeRoom();
-    const ch = new ReplayChannel({ key: Number(key), mock: { id, startAt: t ?? startAt, team }, emit: this.emit, viewers: this.viewers });
+    const ch = new ReplayChannel({ key: Number(key), mock: { id, startAt: t ?? startAt, team, crew }, emit: this.emit, viewers: this.viewers });
     ch.onControl = (c) => this.saveMock?.(c);
     const p = ch.init().then(() => {
       if (startAt != null) ch.mock.startAt = startAt; // restart goes back to where the mock began

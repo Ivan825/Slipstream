@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CARS, TEAM_BY_ID } from '@slipstream/shared';
 import { useToasts, useUI, colorOf } from '../store/stores.js';
-import { useAuth } from '../store/auth.js';
+import { useAuth, simRole } from '../store/auth.js';
 import { beep } from '../lib/sound.js';
 
 /** Five red lights, then lights out: plays when a session goes green. */
@@ -83,7 +83,7 @@ function Palette() {
     return () => window.removeEventListener('keydown', onKey);
   }, [setOpen]);
   useEffect(() => { if (open) { setQ(''); setI(0); setTimeout(() => input.current?.focus(), 20); } }, [open]);
-  const role = user?.role || 'viewer';
+  const role = simRole(user);
   const items = useMemo(() => {
     const pages = [
       { label: 'Home: choose what to watch', go: '/', hint: 'page' },
