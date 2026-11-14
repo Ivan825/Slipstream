@@ -7,6 +7,7 @@ import { useRealAnalysis } from '../pages/RealTelemetry.jsx';
 import { sessionModel, plansFor } from './realStrategy.js';
 import { teamDrivers } from './teams.js';
 import { raceEngine } from './raceEngine.js';
+import { engineer } from './engineer.js';
 import { circuitOf } from './circuit.js';
 import { beep, speak, queueRadio } from './sound.js';
 
@@ -77,7 +78,7 @@ export function useTeamWatch() {
   const team = useUI((s) => s.realTeam);
   const key = useReplay((s) => s.key);
   const data = useRealAnalysis(source.kind === 'real' ? key : null);
-  const prev = useRef({ t: 0, calls: new Map(), best: new Map(), battles: new Map(), flag: null, rain: null, pitT: 0, key: null });
+  const prev = useRef({ t: 0, calls: new Map(), best: new Map(), battles: new Map(), flags: new Set(), modes: new Map(), off: new Map(), flag: null, rain: null, pitT: 0, key: null });
   const push = useTeamFeed((s) => s.push);
   const toast = useToasts((s) => s.push);
 
@@ -91,7 +92,7 @@ export function useTeamWatch() {
       const ours = teamDrivers(meta, useUI.getState().realTeam);
       // seeking, restarting or a new session: take stock silently
       const quiet = p.key !== key || t < p.t - 1000 || t - p.t > 120_000 * Math.max(1, state.speed || 1);
-      if (p.key !== key) { useTeamFeed.getState().clear(); p.best.clear(); p.battles.clear(); p.calls.clear(); }
+      if (p.key !== key) { useTeamFeed.getState().clear(); p.best.clear(); p.battles.clear(); p.calls.clear(); p.flags.clear(); p.modes.clear(); p.off.clear(); }
       const model = sessionModel(data, t, meta.live);
       const s = plansFor({ meta, state, rows, data, model });
       const say = (a) => {
@@ -102,7 +103,7 @@ export function useTeamWatch() {
         // the engineer on the radio: a beep, then the call spoken (only at speeds a person could follow)
         if (useUI.getState().sound && (state.speed || 1) <= 4) {
           beep(a.level === 'red' ? 'alert' : 'info');
-          if (a.voice && a.level !== 'info') speak(a.voice);
+          if (a.voice && (a.level !== 'info' || a.speak)) speak(a.voice);
         }
       };
       const first = (d) => (d.last || d.name || d.code || '').split(' ').pop();
@@ -138,6 +139,26 @@ export function useTeamWatch() {
             say({ n: d.n, code: d.code, color: d.color, level: soon ? 'red' : 'amber', title: soon ? `${rival.code} projected to pass ${d.code} in ${b.swapLap} lap${b.swapLap === 1 ? '' : 's'}` : `${rival.code} within ${b.gapNow.toFixed(1)} s of ${d.code}`, text: `${b.via === 'on track' ? `${Math.round(b.prob * 100)}% on-track chance · ` : ''}attack most likely ${b.zone ? b.zone.label : 'on the main straight'} · ${b.paceNow > 0.05 ? `${rival.code} ${b.paceNow.toFixed(2)} s/lap quicker` : `${d.code} has the pace to hold`}`, voice: soon ? `${first(d)}, ${rival.last || rival.code} is coming, ${b.paceNow > 0 ? `${b.paceNow.toFixed(1)} a lap quicker` : 'defend'}.` : null });
           }
           p.battles.set(k, state2);
+        }
+      }
+      // flags, penalties, incidents, the mode to ask for and lap-time targets
+      const ex = eng ? engineer(eng, s.drivers) : null;
+      for (const f of ex?.flags || []) {
+        const k = `${f.kind}:${f.n ?? ''}:${f.title}`;
+        if (!p.flags.has(k) && (f.tone === 'red' || f.tone === 'amber' || f.voice)) say({ n: f.n, level: f.tone === 'red' ? 'red' : f.tone === 'amber' ? 'amber' : 'info', title: f.title, text: f.text, voice: f.voice, speak: !!f.voice });
+        p.flags.add(k);
+      }
+      for (const d of ours) {
+        const md = ex?.modes.get(d.n);
+        if (md && p.modes.has(d.n) && p.modes.get(d.n) !== md.mode && md.tone !== 'mu') say({ n: d.n, code: d.code, level: 'info', title: `${d.code}: ${md.mode}`, text: `${md.energy} · ${md.tyre} · ${md.why}`, voice: `${first(d)}, ${md.mode}.`, speak: true });
+        if (md) p.modes.set(d.n, md.mode);
+        const tg = ex?.targets.get(d.n);
+        const lapNo = rows.find((r) => r.n === d.n)?.lap;
+        if (tg?.delta != null && lapNo != null && p.off.get(d.n)?.lap !== lapNo) {
+          const off = Math.abs(tg.delta) > 0.4 ? Math.sign(tg.delta) : 0;
+          const was = p.off.get(d.n);
+          if (off && was?.off === off) say({ n: d.n, code: d.code, level: 'info', title: `${d.code} ${off > 0 ? 'off' : 'under'} target two laps running`, text: `Last lap ${tg.delta > 0 ? '+' : ''}${tg.delta.toFixed(2)} s to the ${tg.target.toFixed(2)} target`, voice: off > 0 ? `${first(d)}, we need a bit more pace, target ${Math.floor(tg.target / 60)} ${(tg.target % 60).toFixed(1)}.` : `${first(d)}, you're over-pushing, look after the tyres.`, speak: true });
+          p.off.set(d.n, { lap: lapNo, off });
         }
       }
       // rivals stopping around our cars: the undercut is on

@@ -427,3 +427,23 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 .track-key .k-yel { background: #ffd60a; height: 6px; }
 .track-key .k-bat { background: repeating-linear-gradient(90deg, #ffb020 0 3px, transparent 3px 6px); }
 .track-key .k-gh { width: 9px; height: 9px; border: 1.5px dashed #fff; border-radius: 50%; }
+.tg-car { background: var(--bg-2); border-radius: 6px; padding: 10px 12px; border-left: 3px solid var(--tc); }
+.tg-top { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.tg-big { font-size: 22px; font-weight: 900; font-family: "JetBrains Mono", monospace; }
+.tg-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.tg-mode { border: 1px solid var(--ln); border-left-width: 3px; border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.tg-mode b { font-size: 16px; font-weight: 900; text-transform: uppercase; }
+.tg-gaps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.wx-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.wx-grid > div { background: var(--bg-2); border-radius: 6px; padding: 10px 12px; }
+.wx-grid b { display: block; font-size: 20px; font-weight: 900; margin-top: 2px; }
+.compass { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--ln); border-radius: 50%; font-size: 14px; }
+.compass i { font-style: normal; display: block; color: var(--cyan); }
+.rbar { display: inline-flex; align-items: center; gap: 6px; width: 96px; }
+.rbar i { display: block; height: 6px; border-radius: 3px; }
+.rbar em { font-style: normal; font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--tx-2); }
+.rbar::before { content: ''; }
+.mc { display: inline-flex; align-items: flex-end; gap: 8px; font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--tx-2); margin-top: 6px; }
+.mc-h { display: inline-flex; align-items: flex-end; gap: 1px; height: 18px; }
+.mc-h i { display: block; width: 5px; background: var(--cyan); min-height: 1px; }
+@media (max-width: 760px) { .tg-top, .tg-modes, .wx-grid { grid-template-columns: 1fr 1fr; } }

@@ -14,6 +14,7 @@ const DRY = new Set(['S', 'M', 'H']);
 export const LIFE_FALLBACK = { S: 20, M: 30, H: 40, I: 28, W: 35 };
 export const FUEL_S_PER_LAP = 0.06; // a lap's worth of fuel burnt makes the car about this much faster
 export const SC_FACTOR = { SC: 0.55, VSC: 0.65 };
+const fieldRefOf = (ref) => { const v = [...ref.values()].sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 90; };
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 /** least-squares slope of y on x */
@@ -58,7 +59,11 @@ export function sessionModel(data, t, live) {
   const lengths = {};
   for (const s of data.stints) {
     const done = curLap.get(s.n) || 0;
-    if (s.to != null && s.to < done) { const c = COMP[s.compound]; if (c) (lengths[c] ||= []).push(s.to - (s.from ?? 1) + 1 + (s.age || 0)); }
+    // a stint ended by choice: the car carried on afterwards on another set (not a retirement), and it wasn't
+    // a lap-one or red-flag change of a barely used set
+    const len = (s.to ?? 0) - (s.from ?? 1) + 1;
+    const next = data.stints.some((x) => x.n === s.n && (x.from ?? 0) > (s.to ?? 0) && (x.from ?? 0) <= done);
+    if (s.to != null && s.to < done && next && len >= 4) { const c = COMP[s.compound]; if (c) (lengths[c] ||= []).push(len + (s.age || 0)); }
   }
   const life = {};
   for (const c of Object.keys(LIFE_FALLBACK)) {
@@ -70,8 +75,12 @@ export function sessionModel(data, t, live) {
   }
 
   const totalLaps = live ? null : Math.max(0, ...data.laps.map((l) => l.lap));
+  // retired: no lap completed for a long time while the race ran on (not under a red flag: everyone stops then)
+  const lastT = new Map([...byDriver].map(([n, a]) => [n, a.at(-1).t]));
+  const newest = Math.max(0, ...lastT.values());
+  const retired = new Set([...lastT].filter(([, x]) => newest - x > Math.max(300_000, 4 * (fieldRefOf(ref) * 1000))).map(([n]) => n));
   const lapEnd = new Map(laps.map((l) => [`${l.n}:${l.lap}`, l.t]));
-  return { lapEnd, byDriver, ref, fieldRef, pitLoss, losses, laneTime, life, totalLaps, curLap, clean, pits };
+  return { lapEnd, byDriver, ref, fieldRef, pitLoss, losses, laneTime, life, totalLaps, curLap, clean, pits, retired };
 }
 
 /** the field with numeric gaps, and a plan (call, tyres, rejoin, undercut) for every car */
@@ -97,7 +106,7 @@ export function plansFor({ meta, state, rows, data, model }) {
     const L = model.curLap.get(r.n), tn = model.lapEnd.get(`${r.n}:${L}`), tl = leader && model.lapEnd.get(`${leader.n}:${L}`);
     return tn && tl ? Math.max(0, (tn - tl) / 1000) : null;
   };
-  const field0 = rows.filter((r) => r.pos < 99).map((r) => ({ ...r, g: gapOf(r) }));
+  const field0 = rows.filter((r) => r.pos < 99 && !model.retired?.has(r.n)).map((r) => ({ ...r, g: gapOf(r) }));
   const field = field0.map((r, i) => ({ ...r, int: typeof r.int === 'number' || i === 0 || r.g == null || field0[i - 1].g == null ? r.int : Math.max(0, r.g - field0[i - 1].g) }));
 
   const plan = (r) => {
@@ -144,7 +153,8 @@ export function plansFor({ meta, state, rows, data, model }) {
     else if (!rain && !DRY.has(c) && c && state.weather && !wetRace) { call = 'Watch the crossover to slicks'; tone = 'amber'; }
     else if (remaining != null && remaining <= 1) { call = 'Stay out to the flag'; tone = 'green'; }
     else if (SC_FACTOR[flag] && age >= L * 0.35 && (needStop || age + (remaining ?? 0) > L)) { call = `Box now: cheap stop under ${flag}`; tone = 'red'; kind = 'box'; }
-    else if (age >= L * 0.95 && (remaining == null || age + remaining > L * 1.05)) { call = 'Box this lap: tyres at the end of their life'; tone = 'red'; kind = 'box'; }
+    else if (age >= L * 0.95 && (remaining == null || age + remaining > L * 1.05) && (deg == null || deg > 0.03)) { call = 'Box this lap: tyres at the end of their life'; tone = 'red'; kind = 'box'; }
+    else if (age >= L * 0.95 && deg != null && deg <= 0.03 && !needStop) { call = `Stay out: past typical life but holding (${deg >= 0 ? '+' : ''}${deg.toFixed(2)} s/lap)`; tone = 'green'; }
     else if (undercutThreat && age >= L * 0.6) { call = `Cover the undercut from ${drivers.get(behindCar.n)?.code}`; tone = 'amber'; kind = 'box'; }
     else if (undercutChance && age >= L * 0.6 && rejoin?.gapAhead > 1.5) { call = `Undercut ${drivers.get(aheadCar?.n)?.code}: box now`; tone = 'amber'; kind = 'box'; }
     else if (remaining != null && !needStop && age + remaining <= L * 1.1) { call = 'Stay out: the tyres reach the flag'; tone = 'green'; }

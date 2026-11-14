@@ -132,10 +132,18 @@ export class ReplayChannel {
     try {
       const fresh = await this.source.liveEvents(this.liveSince || Date.now() - 180_000);
       if (!fresh.length) return;
-      this.liveSince = fresh[fresh.length - 1].t;
+      this.liveSince = Math.max(this.liveSince || 0, ...fresh.filter((e) => e.type !== 'radio' && e.type !== 'overtake').map((e) => e.t));
       const known = new Set(this.events.map((e) => `${e.type}:${e.t}:${e.data.n ?? ''}`));
-      for (const e of fresh) if (!known.has(`${e.type}:${e.t}:${e.data.n ?? ''}`)) this.events.push(e);
+      const added = fresh.filter((e) => !known.has(`${e.type}:${e.t}:${e.data.n ?? ''}`));
+      this.events.push(...added);
       this.events.sort((a, b) => a.t - b.t);
+      // events stamped before the clock (radio, overtakes publish late) would be skipped: apply and send them now
+      const past = added.filter((e) => e.t <= this.t);
+      if (past.length) {
+        const out = [];
+        for (const e of past) this.apply(e, out);
+        if (out.length && this.viewers(this.room())) this.emit('replay:events', { events: out.map((e) => ({ t: e.t, type: e.type, fastest: e.fastest, ...e.data })) });
+      }
       this.ei = this.events.findIndex((e) => e.t > this.t);
       if (this.ei < 0) this.ei = this.events.length;
     } catch (e) { log.warn('live poll', e.message); }
@@ -162,6 +170,7 @@ export class ReplayChannel {
         break;
       case 'pit': s.pits.set(d.n, (s.pits.get(d.n) || 0) + 1); collect?.push(e); break;
       case 'weather': s.weather = d; collect?.push(e); break;
+      case 'overtake': collect?.push(e); break;
       case 'radio':
         s.radio.push({ t: e.t, n: d.n, url: d.url });
         if (s.radio.length > 40) s.radio.shift();

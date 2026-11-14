@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { COMPOUNDS, formatLapTime } from '@slipstream/shared';
 import { useReplay } from '../store/replay.js';
 import { useUI } from '../store/stores.js';
@@ -10,6 +10,8 @@ import { tyreView, tempColour } from '../lib/tyreModel.js';
 import { useRadio, playRadio, stopRadio } from '../lib/sound.js';
 import { teamDrivers } from '../lib/teams.js';
 import { Tyre } from './TimingTower.jsx';
+import { engineer } from '../lib/engineer.js';
+import { Targets, Flags, Weather, Drivers, TyreField, EngineerCalls, McCell } from './EngineerPanels.jsx';
 
 export const TONE = { red: 'var(--red)', amber: '#ffb020', green: '#2bd94e', mu: 'var(--mu)', cyan: 'var(--cyan)' };
 const sec = (x, d = 1) => (x == null || !Number.isFinite(x) ? '—' : `${x.toFixed(d)} s`);
@@ -24,10 +26,11 @@ export function useEngine() {
   const circuit = useMemo(() => circuitOf(meta), [meta]);
   const drivers = useMemo(() => new Map((meta?.drivers || []).map((d) => [d.n, d])), [meta]);
   const eng = raceEngine({ meta, state, rows, data, team, circuit, focus: selected });
-  return { meta, state, rows, data, team, circuit, drivers, eng, selected };
+  const ex = eng ? engineer(eng, drivers) : null;
+  return { meta, state, rows, data, team, circuit, drivers, eng, ex, selected };
 }
 
-const TABS = [['forecast', 'Battle forecast'], ['strategy', 'Strategies'], ['priority', 'Driver priority'], ['tyres', 'Tyres'], ['radio', 'Team radio']];
+const TABS = [['forecast', 'Battle forecast'], ['strategy', 'Strategies'], ['targets', 'Targets & modes'], ['priority', 'Driver priority'], ['flags', 'Flags & incidents'], ['tyres', 'Tyres'], ['weather', 'Weather'], ['drivers', 'Drivers'], ['radio', 'Radio']];
 
 /** the race engineer's deck under the pit wall: forecast, strategies, priority, tyres and radio */
 export default function RaceDeck() {
@@ -36,14 +39,15 @@ export default function RaceDeck() {
   const ctx = useEngine();
   const { meta, eng, team } = ctx;
   const isRace = /Race|Sprint/.test(meta?.type || '');
-  const radioCount = useReplay((s) => s.radio.length);
+  const liveRadio = useReplay((s) => s.radio.length);
   if (!meta) return null;
-  const tabs = TABS.filter(([k]) => isRace || k === 'tyres' || k === 'radio');
+  const tabs = TABS.filter(([k]) => isRace || ['tyres', 'radio', 'weather', 'drivers', 'flags'].includes(k));
+  const nFlags = ctx.ex?.flags.filter((f) => f.tone === 'red' || f.tone === 'amber').length || 0;
   const cur = tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
   return (
     <div className="card deck">
       <div className="card-h">
-        <div className="seg deck-tabs">{tabs.map(([k, l]) => <button key={k} className={cur === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{k === 'radio' && radioCount ? ` · ${radioCount}` : ''}</button>)}</div>
+        <div className="seg deck-tabs">{tabs.map(([k, l]) => <button key={k} className={cur === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{k === 'radio' && (ctx.data?.radio || liveRadio) ? ` · ${(ctx.data?.radio || []).filter((r) => r.t <= (ctx.state.t || 0) + 1000).length || liveRadio}` : ''}{k === 'flags' && nFlags ? ` · ${nFlags}` : ''}</button>)}</div>
         <span className="chip">{team ? `${team} · ${eng?.ours.length || 0} cars` : 'pick your team to focus the engineer'}{eng?.total.laps ? ` · ${eng.R} laps to go of ${eng.total.laps}${eng.total.est ? ' (est.)' : ''}` : ''}</span>
       </div>
       <div className="deck-b">
@@ -51,6 +55,10 @@ export default function RaceDeck() {
         {eng && cur === 'forecast' && <Forecast {...ctx} />}
         {eng && cur === 'strategy' && <Strategies {...ctx} />}
         {eng && cur === 'priority' && <Priority {...ctx} />}
+        {eng && cur === 'targets' && <Targets {...ctx} />}
+        {eng && cur === 'flags' && <Flags {...ctx} />}
+        {cur === 'weather' && <Weather {...ctx} />}
+        {eng && cur === 'drivers' && <Drivers {...ctx} />}
         {cur === 'tyres' && <Tyres {...ctx} />}
         {cur === 'radio' && <Radio {...ctx} />}
       </div>
@@ -181,13 +189,15 @@ function GapChart({ n, eng, drivers, rivals }) {
 }
 
 /* ---------------- strategy options ---------------- */
-function Strategies({ eng, drivers }) {
+function Strategies({ eng, ex, drivers }) {
   const total = eng.total.laps;
   return (
     <div className={eng.focus.length > 1 ? 'two' : ''}>
       {eng.focus.map((n) => {
         const opts = eng.options.get(n) || [];
         const me = eng.proj.cars.get(n);
+        const mc = ex?.mc.get(n) || [];
+        const mcBest = mc.length ? mc.slice().sort((a, b) => a.exp - b.exp)[0] : null;
         const from = (me?.r.lap || 0);
         return (
           <div key={n} className="stack" style={{ gap: 8 }}>
@@ -196,6 +206,7 @@ function Strategies({ eng, drivers }) {
               <span className="chip">P{me?.r.pos}</span>{me?.pr.c && <Tyre c={me.pr.c} age={me.pr.age} />}<span className="chip">{me?.pr.age} / ~{me?.pr.life(me.pr.c)} laps</span>
             </div>
             {!opts.length && <div className="mu">No options: the race is about to finish.</div>}
+            {mcBest && opts[0] && mcBest.id !== opts[0].id && <div className="insight"><i style={{ background: '#ffb020' }} /><div><b>Safer under uncertainty: Plan {mcBest.letter}</b><p>With random safety cars, VSCs and pace noise, "{mcBest.title}" averages P{mcBest.exp.toFixed(1)} against P{mc.find((m) => m.id === opts[0].id)?.exp.toFixed(1)} for Plan A.</p></div></div>}
             {opts.map((o) => (
               <div key={o.id} className={`opt ${o.letter === 'A' ? 'rec' : ''}`}>
                 <div className="row" style={{ gap: 6 }}>
@@ -208,12 +219,13 @@ function Strategies({ eng, drivers }) {
                 </div>
                 <PlanBar from={from} total={total} cur={me?.pr.c} stops={o.stops} />
                 {o.notes.length > 0 && <div className="mu" style={{ fontSize: 11.5 }}>{o.notes.join(' · ')}</div>}
+                <McCell m={mc.find((m) => m.id === o.id)} />
               </div>
             ))}
           </div>
         );
       })}
-      <div className="merge-note" style={{ gridColumn: '1 / -1' }}><span>every no-stop, one-stop (any lap, any compound) and two-stop plan simulated to the flag against the field's likely plans · ranked by time with a margin for risk · rule: two dry compounds in a dry race</span></div>
+      <div className="merge-note" style={{ gridColumn: '1 / -1' }}><span>every no-stop, one-stop (any lap, any compound) and two-stop plan simulated to the flag against the field's likely plans · ranked by time with a margin for risk · rule: two dry compounds in a dry race · the top four also run 160 times each with random safety cars (1.2%/lap), VSCs (0.8%/lap) and pace noise for a distribution of finishing positions · outstanding penalties are counted</span></div>
     </div>
   );
 }
@@ -277,6 +289,7 @@ function Tyres({ eng, rows, drivers, meta, team, selected, data, state }) {
         <DegChart data={data} drivers={drivers} focus={focus} rows={rows} t={state.t} />
         <StintHistory data={data} rows={rows} drivers={drivers} total={eng?.total.laps} ours={ours} />
       </div>
+      <TyreField eng={eng} rows={rows} drivers={drivers} data={data} state={state} />
       <div className="merge-note"><span>Temperatures and per-corner wear are estimates: a thermal model run on each car's live speed, cornering, braking and traction (public timing has no tyre sensors). Age, compounds, stints and lap times are real.</span></div>
     </div>
   );
@@ -322,7 +335,8 @@ function DegChart({ data, drivers, focus, rows, t }) {
       const r = rows.find((x) => x.n === n);
       const st = (data.stints || []).filter((s) => s.n === n && (s.from ?? 1) <= (r?.lap || 1)).at(-1);
       if (!st) return null;
-      const laps = data.laps.filter((l) => l.n === n && l.t <= t && l.lap >= (st.from ?? 1) && !l.pitOut).map((l) => ({ age: (st.age || 0) + l.lap - (st.from ?? 1), time: l.time }));
+      // fuel-corrected: the time the burnt fuel gave is added back, so the slope is the tyre alone
+      const laps = data.laps.filter((l) => l.n === n && l.t <= t && l.lap >= (st.from ?? 1) && !l.pitOut).map((l) => ({ age: (st.age || 0) + l.lap - (st.from ?? 1), time: l.time + 0.06 * l.lap }));
       const best = Math.min(...laps.map((l) => l.time), Infinity);
       return { n, c: st.compound?.[0], laps: laps.filter((l) => l.time < best * 1.05), mine: focus.includes(n) };
     }).filter((s) => s && s.laps.length);
@@ -354,14 +368,14 @@ function DegChart({ data, drivers, focus, rows, t }) {
         const k = den ? num / den : 0;
         const aa = Math.min(...s.laps.map((l) => l.age)), ab = Math.max(...s.laps.map((l) => l.age));
         ctx.strokeStyle = col; ctx.lineWidth = s.mine ? 2 : 1.2; ctx.beginPath(); ctx.moveTo(X(aa), Y(my + k * (aa - mx))); ctx.lineTo(X(ab), Y(my + k * (ab - mx))); ctx.stroke();
-        ctx.font = '700 10px "Titillium Web"'; ctx.fillText(`${drivers.get(s.n)?.code} ${k >= 0 ? '+' : ''}${k.toFixed(3)} raw`, X(ab) + 4 > w - 70 ? w - 70 : X(ab) + 4, Y(my + k * (ab - mx)));
+        ctx.font = '700 10px "Titillium Web"'; ctx.fillText(`${drivers.get(s.n)?.code} ${k >= 0 ? '+' : ''}${k.toFixed(3)}/lap`, X(ab) + 4 > w - 70 ? w - 70 : X(ab) + 4, Y(my + k * (ab - mx)));
       }
       ctx.globalAlpha = 1;
     }
   }, [series]);
   return (
     <div className="card">
-      <div className="card-h"><b>Degradation on the current set</b><span className="chip">lap time vs tyre age · raw slope s/lap (fuel burn included)</span></div>
+      <div className="card-h"><b>Degradation on the current set</b><span className="chip">fuel-corrected lap time vs tyre age · slope = tyre deg s/lap</span></div>
       <div style={{ height: 230, padding: '6px 10px' }}><canvas ref={ref} style={{ width: '100%', height: '100%', display: 'block' }} aria-label="Lap time against tyre age for our cars and the cars around them" /></div>
     </div>
   );
@@ -396,18 +410,26 @@ function StintHistory({ data, rows, drivers, total, ours }) {
 }
 
 /* ---------------- team radio ---------------- */
-function Radio({ drivers, meta, team, selected, state }) {
+function Radio({ drivers, meta, team, selected, state, ex, data }) {
   const radio = useReplay((s) => s.radio);
   const { now, queue, error } = useRadio();
   const sound = useUI((s) => s.sound);
   const auto = useUI((s) => s.radioAuto);
   const setAuto = useUI((s) => s.setRadioAuto);
   const ours = new Set(teamDrivers(meta, team).map((d) => d.n));
-  const list = radio.filter((r) => r.t <= state.t + 1000);
+  const [who, setWho] = useState('all');
+  // every clip of the session up to the clock: the full list from the session data, plus any that arrived live since
+  const list = useMemo(() => {
+    const m = new Map();
+    for (const r of [...(data?.radio || []), ...radio]) if (r.t <= state.t + 1000) m.set(r.url + r.t, r);
+    return [...m.values()].sort((a, b) => b.t - a.t);
+  }, [data?.radio, radio, Math.floor((state.t || 0) / 1000)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = list.filter((r) => who === 'all' || (who === 'ours' ? ours.has(r.n) : r.n === selected));
   return (
     <div className="stack" style={{ gap: 10 }}>
+      <EngineerCalls ex={ex} />
       <div className="row" style={{ gap: 10 }}>
-        <span className="lbl" style={{ margin: 0 }}>Play by itself</span>
+        <span className="lbl" style={{ margin: 0 }}>Driver radio · play by itself</span>
         <div className="seg">{[['ours', ours.size ? 'Our cars' : 'Selected car'], ['all', 'Every car'], ['off', 'Off']].map(([k, l]) => <button key={k} className={auto === k ? 'on' : ''} onClick={() => setAuto(k)}>{l}</button>)}</div>
         {!sound && <span className="chip" style={{ borderColor: '#ffb020', color: '#ffb020' }}>sound is off: switch it on in the top bar</span>}
         {sound && state.speed > 2 && <span className="chip">clips play by themselves at 2× or slower</span>}
@@ -415,9 +437,14 @@ function Radio({ drivers, meta, team, selected, state }) {
         {queue.length > 0 && <span className="chip">{queue.length} waiting</span>}
         {error && <span className="chip" style={{ color: '#ffb020' }}>{error}</span>}
       </div>
-      <ul className="feed radio-list" style={{ maxHeight: 380 }}>
-        {!list.length && <li><i style={{ background: 'transparent' }} /><div className="m mu">No team radio yet at this point of the session. Clips appear as they were broadcast, with the drivers' own audio.</div></li>}
-        {list.map((r) => {
+      <div className="row" style={{ gap: 10 }}>
+        <span className="lbl" style={{ margin: 0 }}>Show</span>
+        <div className="seg">{[['all', `Every car · ${list.length}`], ['ours', `Our cars · ${list.filter((r) => ours.has(r.n)).length}`], ['sel', `Selected · ${list.filter((r) => r.n === selected).length}`]].map(([k, l]) => <button key={k} className={who === k ? 'on' : ''} onClick={() => setWho(k)}>{l}</button>)}</div>
+        <span className="chip">{(data?.radio || []).length} clips in the session · {list.length} up to now</span>
+      </div>
+      <ul className="feed radio-list" style={{ maxHeight: 420 }}>
+        {!shown.length && <li><i style={{ background: 'transparent' }} /><div className="m mu">No team radio yet at this point of the session. Clips appear as they were broadcast, with the drivers' own audio.</div></li>}
+        {shown.map((r) => {
           const d = drivers.get(r.n);
           const playing = now?.url === r.url;
           return (

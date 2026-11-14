@@ -33,7 +33,9 @@ async function unpack(buf, a) {
 const iso = (ms) => new Date(ms).toISOString().replace('Z', '');
 const ts = (s) => (s ? Date.parse(/Z|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z') : null);
 // what was recorded beyond the core timing (team radio, marshal sectors, circuit geometry); bump to backfill cached sessions
-export const EXTRAS = 1;
+export const EXTRAS = 2;
+const wxData = (w) => ({ air: w.air_temperature, track: w.track_temperature, rain: w.rainfall, humidity: w.humidity, wind: w.wind_speed, windDir: w.wind_direction ?? null, pressure: w.pressure ?? null });
+const otData = (o) => ({ n: o.overtaking_driver_number, o: o.overtaken_driver_number, pos: o.position });
 const rcData = (r) => ({ category: r.category, flag: r.flag, message: r.message, lap: r.lap_number, n: r.driver_number, scope: r.scope, sector: r.sector ?? null });
 /** laps in a finished race: the most laps anyone completed */
 export function totalLapsOf(events, type) {
@@ -111,7 +113,7 @@ export class SessionSource {
     if (!session) throw new Error(`OpenF1 session ${this.key} not found`);
     const key = session.session_key;
     this.key = key;
-    const [driversRaw, laps, positions, rc, weather, pits, stintsRaw, radio] = [
+    const [driversRaw, laps, positions, rc, weather, pits, stintsRaw, radio, overtakes] = [
       await openf1('drivers', { session_key: key }),
       await openf1('laps', { session_key: key }),
       await openf1('position', { session_key: key }),
@@ -119,7 +121,8 @@ export class SessionSource {
       await openf1('weather', { session_key: key }),
       await openf1('pit', { session_key: key }),
       await openf1('stints', { session_key: key }),
-      await openf1('team_radio', { session_key: key }).catch(() => [])
+      await openf1('team_radio', { session_key: key }).catch(() => []),
+      await openf1('overtakes', { session_key: key }).catch(() => [])
     ];
     const drivers = driversRaw.map((d) => ({ n: d.driver_number, code: d.name_acronym, name: d.full_name, first: d.first_name, last: d.last_name, team: d.team_name, color: '#' + (d.team_colour || '888888'), country: d.country_code }));
     const stints = stintsRaw.map((s) => ({ n: s.driver_number, from: s.lap_start, to: s.lap_end, compound: s.compound, age: s.tyre_age_at_start }));
@@ -142,7 +145,8 @@ export class SessionSource {
     for (const p of positions) add(ts(p.date), 'position', { n: p.driver_number, pos: p.position });
     for (const r of rc) add(ts(r.date), 'rc', rcData(r));
     for (const r of radio) if (r.recording_url) add(ts(r.date), 'radio', { n: r.driver_number, url: r.recording_url });
-    for (const w of weather) add(ts(w.date), 'weather', { air: w.air_temperature, track: w.track_temperature, rain: w.rainfall, humidity: w.humidity, wind: w.wind_speed });
+    for (const w of weather) add(ts(w.date), 'weather', wxData(w));
+    for (const o of overtakes) add(ts(o.date), 'overtake', otData(o));
     for (const p of pits) add(ts(p.date), 'pit', { n: p.driver_number, lap: p.lap_number, duration: p.pit_duration });
     events.sort((a, b) => a.t - b.t);
 
@@ -186,7 +190,11 @@ export class SessionSource {
     try {
       const radio = await openf1('team_radio', { session_key: key }).catch(() => []);
       const rc = await openf1('race_control', { session_key: key });
+      const weather = await openf1('weather', { session_key: key }).catch(() => []);
+      const overtakes = await openf1('overtakes', { session_key: key }).catch(() => []);
       const extra = [
+        ...weather.map((w) => ({ t: ts(w.date), type: 'weather', data: wxData(w) })),
+        ...overtakes.map((o) => ({ t: ts(o.date), type: 'overtake', data: otData(o) })),
         ...rc.map((r) => ({ t: ts(r.date), type: 'rc', data: rcData(r) })),
         ...radio.filter((r) => r.recording_url).map((r) => ({ t: ts(r.date), type: 'radio', data: { n: r.driver_number, url: r.recording_url } }))
       ].filter((e) => e.t != null);
@@ -200,11 +208,13 @@ export class SessionSource {
         const [row] = await openf1('laps', { session_key: key, driver_number: best.data.n, lap_number: best.data.lap }).catch(() => []);
         geo = await circuitFromLap(key, best.data.n, a, a + best.data.time * 1000, row || { duration_sector_1: best.data.s?.[0], duration_sector_2: best.data.s?.[1] });
       }
-      await ReplayEvent.deleteMany({ s: key, type: { $in: ['rc', 'radio'] } });
+      const REDONE = ['rc', 'radio', ...(weather.length ? ['weather'] : []), 'overtake'];
+      await ReplayEvent.deleteMany({ s: key, type: { $in: REDONE } });
       if (extra.length) await ReplayEvent.collection.insertMany(extra.map((e) => ({ s: key, t: new Date(e.t), type: e.type, data: e.data })), { ordered: false });
-      this.events = [...this.events.filter((e) => e.type !== 'rc' && e.type !== 'radio'), ...extra].sort((a, b) => a.t - b.t);
+      this.events = [...this.events.filter((e) => !REDONE.includes(e.type)), ...extra].sort((a, b) => a.t - b.t);
       const set = { xv: EXTRAS, events: this.events.length, totalLaps: m.complete ? totalLapsOf(this.events, m.type) : null };
       if (geo?.track?.length) Object.assign(set, { track: geo.track, info: geo.info });
+      else if (m.info) delete set.info;
       Object.assign(this.meta, set);
       await ReplaySession.updateOne({ key }, set);
       log.info(`openf1: ${m.name} upgraded (${radio.length} radio clips, circuit geometry ${geo ? 'added' : 'unavailable'})`);
@@ -286,15 +296,19 @@ export class SessionSource {
   async liveEvents(since) {
     const key = this.meta.key;
     const q = { session_key: key, 'date>': iso(since) };
+    const late = { session_key: key, 'date>': iso(since - 300_000) };
     const out = [];
     for (const p of await openf1('position', q)) out.push({ t: ts(p.date), type: 'position', data: { n: p.driver_number, pos: p.position } });
     for (const r of await openf1('race_control', q)) out.push({ t: ts(r.date), type: 'rc', data: rcData(r) });
-    for (const r of await openf1('team_radio', q).catch(() => [])) if (r.recording_url) out.push({ t: ts(r.date), type: 'radio', data: { n: r.driver_number, url: r.recording_url } });
+    for (const w of await openf1('weather', q).catch(() => [])) out.push({ t: ts(w.date), type: 'weather', data: wxData(w) });
+    for (const o of await openf1('overtakes', late).catch(() => [])) out.push({ t: ts(o.date), type: 'overtake', data: otData(o) });
+    // radio clips and overtakes are published a while after the moment they're stamped with: `late` looks further back
+    for (const r of await openf1('team_radio', late).catch(() => [])) if (r.recording_url) out.push({ t: ts(r.date), type: 'radio', data: { n: r.driver_number, url: r.recording_url } });
     for (const l of await openf1('laps', { session_key: key, 'date_start>': iso(since - 180_000) })) {
       if (l.lap_duration && l.date_start) out.push({ t: ts(l.date_start) + l.lap_duration * 1000, type: 'lap', data: { n: l.driver_number, lap: l.lap_number, time: l.lap_duration, s: [l.duration_sector_1, l.duration_sector_2, l.duration_sector_3], pitOut: !!l.is_pit_out_lap } });
       if (l.date_start) out.push({ t: ts(l.date_start), type: 'lapstart', data: { n: l.driver_number, lap: l.lap_number } });
     }
-    return out.filter((e) => e.t > since).sort((a, b) => a.t - b.t);
+    return out.filter((e) => e.t > since || e.type === 'radio' || e.type === 'overtake').sort((a, b) => a.t - b.t);
   }
 }
 

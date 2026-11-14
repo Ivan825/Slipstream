@@ -104,7 +104,12 @@ export function replayRouter(hub) {
         n: e.data.n, lap: e.data.lap, t: e.t, time: e.data.time, s: e.data.s, st: e.data.st ?? null, pitOut: !!e.data.pitOut, pos: posAt(e.data.n, e.t + 500)
       }));
       const pits = events.filter((e) => e.type === 'pit').map((e) => ({ n: e.data.n, lap: e.data.lap, duration: e.data.duration, t: e.t }));
-      res.json({ key: ch.meta.key, ch: ch.ch(), name: ch.meta.name, type: ch.meta.type, drivers: ch.meta.drivers, stints: ch.meta.stints, laps, pits, from: ch.from, to: ch.to });
+      const weather = events.filter((e) => e.type === 'weather').map((e) => ({ t: e.t, ...e.data }));
+      const overtakes = events.filter((e) => e.type === 'overtake').map((e) => ({ t: e.t, ...e.data }));
+      const rc = events.filter((e) => e.type === 'rc').map((e) => ({ t: e.t, ...e.data }));
+      // every team-radio clip of the session (the client shows those up to its clock)
+      const radio = events.filter((e) => e.type === 'radio').map((e) => ({ t: e.t, n: e.data.n, url: e.data.url }));
+      res.json({ rc, radio,  key: ch.meta.key, ch: ch.ch(), name: ch.meta.name, type: ch.meta.type, drivers: ch.meta.drivers, stints: ch.meta.stints, laps, pits, weather, overtakes, from: ch.from, to: ch.to });
     } catch (e) { fail(res, e); }
   });
 

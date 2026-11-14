@@ -18,6 +18,8 @@
  */
 import { sessionModel, plansFor, FUEL_S_PER_LAP } from './realStrategy.js';
 import { teamDrivers } from './teams.js';
+import { incidents } from './incidents.js';
+import { ratings } from './ratings.js';
 
 const DEG_DEFAULT = { S: 0.1, M: 0.065, H: 0.045, I: 0.08, W: 0.06 };
 // fresh-tyre pace relative to a medium (dry compounds)
@@ -49,7 +51,9 @@ function profile(r, p, model) {
   const ref = model.ref.get(r.n) ?? model.fieldRef;
   // pace on a fresh medium, no extra fuel, at this moment
   const base0 = ref - degOf(c) * p.age - (COMP_OFFSET[c] || 0);
-  return { n: r.n, c, age: p.age, g: r.g, pos: r.pos, base0, degOf, life: (x) => life[x]?.laps ?? 30, ref };
+  // a set that is barely degrading lasts longer than the session's typical life
+  const own = p.deg != null && p.stintLaps >= 6 && p.deg < (DEG_DEFAULT[c] ?? 0.07) * 0.5 ? Math.max(life[c]?.laps ?? 30, p.age + clamp(1.2 / Math.max(p.deg, 0.012), 12, 100)) : null;
+  return { n: r.n, c, age: p.age, g: r.g, pos: r.pos, base0, degOf, life: (x) => (x === c && own ? own : life[x]?.laps ?? 30), ref };
 }
 
 /** cumulative race time (from the leader's line now) after each of the next R laps */
@@ -83,7 +87,7 @@ function defaultStops(pr, p, R) {
  * Project the whole field. Returns per-car simulations, the projected order at
  * the flag and helpers for gap lookups.
  */
-export function projectField({ s, model, R }) {
+export function projectField({ s, model, R, owed = new Map() }) {
   const lossFor = (k) => (k === 1 ? s.lossNow : model.pitLoss);
   const cars = new Map();
   for (const r of s.field) {
@@ -91,11 +95,15 @@ export function projectField({ s, model, R }) {
     if (!p || r.g == null) continue;
     const pr = profile(r, p, model);
     const stops = s.isRace ? defaultStops(pr, p, R) : [];
-    cars.set(r.n, { r, p, pr, stops, sim: simulate(pr, R, stops, lossFor) });
+    const sim = simulate(pr, R, stops, lossFor);
+    // penalties not yet served count at the flag (or at the next stop, which comes to the same)
+    const pen = owed.get(r.n) || 0;
+    if (pen) { sim.total += pen; sim.cum[R] += pen; }
+    cars.set(r.n, { r, p, pr, stops, sim, pen });
   }
   const order = [...cars.values()].sort((a, b) => a.sim.total - b.sim.total);
   order.forEach((c, i) => { c.projPos = i + 1; });
-  return { cars, order, R, lossFor };
+  return { cars, order, R, lossFor, owed };
 }
 
 /**
@@ -103,7 +111,7 @@ export function projectField({ s, model, R }) {
  * into overtaking range, when the cars would swap (on track or through a stop),
  * where on the lap, and how likely an on-track pass is.
  */
-export function battlesFor(n, proj, circuit, { otDelta = null } = {}) {
+export function battlesFor(n, proj, circuit, { otDelta = null, skill = null } = {}) {
   const me = proj.cars.get(n);
   if (!me) return [];
   const R = proj.R;
@@ -133,14 +141,16 @@ export function battlesFor(n, proj, circuit, { otDelta = null } = {}) {
     const paceNow = (me.sim.lap[1] || 0) - (o.sim.lap[1] || 0); // >0: they are faster
     const kRef = swapLap ?? catchLap ?? 1;
     const d = delta ?? Math.abs((me.sim.lap[kRef] || 0) - (o.sim.lap[kRef] || 0));
-    const prob = via && via !== 'on track' ? 0.9 : clamp(sig((d - need) / 0.12), 0.03, 0.9);
+    // a better racer attacks and defends a little better (racecraft from this session's overtakes)
+    const rcA = skill?.get(behind ? o.r.n : n)?.racecraft ?? 55, rcD = skill?.get(behind ? n : o.r.n)?.racecraft ?? 55;
+    const prob = via && via !== 'on track' ? 0.9 : clamp(sig((d - need + (rcA - rcD) / 250) / 0.12), 0.03, 0.9);
     const zone = circuit?.zones?.[0] || null;
     // what the swap means for us
     const kind = via === 'on track' ? (behind ? 'pass-us' : 'we-pass') : via === 'our stop' ? (behind ? 'lose-at-stop' : 'gain-at-stop') : via === 'their stop' ? (behind ? 'undercut' : 'gain-at-stop') : 'range';
     out.push({
       rival: o.r.n, behind, gapNow: g0, paceNow, catchLap, swapLap, via, prob, zone, alt: circuit?.zones?.[1] || null, kind,
       inRange: Math.abs(g0) <= DRS_RANGE, threat: behind && (kind === 'pass-us' || kind === 'undercut' || Math.abs(g0) <= DRS_RANGE), held: via === 'on track' && prob < 0.35,
-      ourLap: me.r.lap || 0, ageDiff: (me.pr.age ?? 0) - (o.pr.age ?? 0), oc: o.pr.c, mc: me.pr.c
+      pen: o.pen || 0, ourLap: me.r.lap || 0, ageDiff: (me.pr.age ?? 0) - (o.pr.age ?? 0), oc: o.pr.c, mc: me.pr.c
     });
   }
   return out.sort((a, b) => (a.swapLap ?? a.catchLap ?? 99) - (b.swapLap ?? b.catchLap ?? 99));
@@ -161,7 +171,7 @@ export function optionsFor(n, proj, s) {
   const finals = others.map((c) => c.sim.total).sort((a, b) => a - b);
   const posOf = (total) => 1 + finals.filter((x) => x < total).length;
   const ruleOk = (stops) => !me.p.needStop || rain || stops.some((x) => !used.has(x.c) && x.c !== me.pr.c);
-  const run = (stops) => simulate(me.pr, R, stops, proj.lossFor);
+  const run = (stops) => { const sim = simulate(me.pr, R, stops, proj.lossFor); if (me.pen) { sim.total += me.pen; sim.cum[R] += me.pen; } return sim; };
   const rejoinTraffic = (k, sim) => {
     if (k == null) return null;
     const t = sim.cum[k];
@@ -308,13 +318,15 @@ export function raceEngine({ meta, state, rows, data, team, circuit, focus }) {
     p.usedDry = new Set(st.map((x) => ({ SOFT: 'S', MEDIUM: 'M', HARD: 'H' })[x.compound]).filter(Boolean));
   }
   const R = s.remaining ?? 0;
-  const proj = projectField({ s, model, R });
+  const inc = incidents(data.rc || [], state.t || 0, model.pits, { laneTime: model.laneTime || 20, pitLoss: model.pitLoss });
+  const skill = ratings({ data, model, t: state.t || 0 });
+  const proj = projectField({ s, model, R, owed: inc.owed });
   const oursD = teamDrivers(meta, team).filter((d) => proj.cars.has(d.n));
   const focusN = oursD.length ? oursD.map((d) => d.n) : [focus ?? rows[0]?.n].filter((n) => proj.cars.has(n));
-  const battles = new Map(focusN.map((n) => [n, battlesFor(n, proj, circuit)]));
+  const battles = new Map(focusN.map((n) => [n, battlesFor(n, proj, circuit, { skill })]));
   const options = new Map(focusN.map((n) => [n, optionsFor(n, proj, s)]));
   const priority = oursD.length ? priorityFor(oursD, proj, s, battles, options) : null;
-  const v = { model, s, proj, total, focus: focusN, ours: oursD, battles, options, priority, R };
+  const v = { model, s, proj, total, focus: focusN, ours: oursD, battles, options, priority, R, inc, skill, circuit, meta, state, rows, data };
   memo.set(k, v);
   if (memo.size > 4) memo.delete(memo.keys().next().value);
   return v;
