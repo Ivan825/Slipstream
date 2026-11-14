@@ -111,7 +111,8 @@ export function useTeamWatch() {
         const plan = s.plans.get(d.n);
         if (!plan) continue;
         const was = p.calls.get(d.n);
-        if (plan.kind === 'box' && was?.call !== plan.call) say({ n: d.n, code: d.code, color: d.color, level: plan.tone === 'red' ? 'red' : 'amber', title: `${d.code}: ${plan.call}`, text: `Rejoin P${plan.rejoin?.pos ?? '?'} · fit ${plan.fit} · tyres ${plan.age}/${plan.L} laps`, voice: plan.tone === 'red' ? `${first(d)}, box, box. ${plan.call.split(':')[0]}.` : `${first(d)}: ${plan.call}` });
+        // under a safety car or VSC the box-or-stay comparison (flag calls below) decides instead
+        if (plan.kind === 'box' && was?.call !== plan.call && s.flag !== 'SC' && s.flag !== 'VSC') say({ n: d.n, code: d.code, color: d.color, level: plan.tone === 'red' ? 'red' : 'amber', title: `${d.code}: ${plan.call}`, text: `Rejoin P${plan.rejoin?.pos ?? '?'} · fit ${plan.fit} · tyres ${plan.age}/${plan.L} laps`, voice: plan.tone === 'red' ? `${first(d)}, box, box. ${plan.call.split(':')[0]}.` : `${first(d)}: ${plan.call}` });
         p.calls.set(d.n, plan);
       }
       // the forward look: strategy switches and battles coming up

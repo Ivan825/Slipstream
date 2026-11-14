@@ -95,7 +95,7 @@ export function recommendMode(n, eng, tg) {
   const mate = b.find((x) => mates.has(x.rival) && x.inRange);
   if (flag === 'RED') return { mode: 'Engine off', energy: '—', tyre: 'Blankets on', why: 'red flag: cars in the pit lane', tone: 'red' };
   if (flag === 'SC' || flag === 'VSC') return { mode: flag === 'VSC' ? 'VSC delta mode' : 'SC mode', energy: 'Harvest', tyre: 'Keep temperature (weave, brake)', why: 'stay positive to the delta, bank energy for the restart', tone: 'amber' };
-  if (p?.kind === 'box' && p.tone === 'red') return { mode: 'In-lap push', energy: 'Deploy all', tyre: 'Use what is left', why: 'box this lap: every tenth on the in-lap counts', tone: 'red' };
+  if (p?.kind === 'box' && p.tone === 'red' && flag === 'GREEN') return { mode: 'In-lap push', energy: 'Deploy all', tyre: 'Use what is left', why: 'box this lap: every tenth on the in-lap counts', tone: 'red' };
   if (me && me.pr.age <= 1) return { mode: 'Out-lap push', energy: 'Deploy', tyre: 'Bring the tyres in', why: 'fresh set: build temperature, beat the undercut', tone: 'red' };
   if (under) return { mode: 'Defend: overtake mode', energy: 'Deploy on the straights', tyre: 'Push', why: `car behind within ${Math.abs(under.gapNow).toFixed(1)} s: hold the DRS zone`, tone: 'red' };
   if (attack) return { mode: 'Attack: overtake mode', energy: `Deploy into ${attack.zone?.label || 'the main straight'}`, tyre: 'Push', why: `within ${Math.abs(attack.gapNow).toFixed(1)} s of the car ahead and quicker`, tone: 'green' };
@@ -296,7 +296,7 @@ export function radioCalls(eng, { drivers, wx, flags, targets, modes }) {
     const add = (prio, kind, text, voice = text) => calls.push({ n, code: d.code, color: d.color, prio, kind, text, voice });
     for (const f of flags.filter((x) => x.n === n && x.voice)) add(f.tone === 'red' ? 0 : 1, f.kind, f.title + '. ' + f.text, f.voice);
     const p = s.plans.get(n);
-    if (p?.kind === 'box' && p.tone === 'red') add(0, 'box', `Box this lap: ${p.call}. Fit ${p.fit}.`, `${name}, box box, box box. ${p.fit === 'H' ? 'Hards' : p.fit === 'M' ? 'Mediums' : p.fit === 'S' ? 'Softs' : 'Inters'}.`);
+    if (p?.kind === 'box' && p.tone === 'red' && s.flag !== 'SC' && s.flag !== 'VSC') add(0, 'box', `Box this lap: ${p.call}. Fit ${p.fit}.`, `${name}, box box, box box. ${p.fit === 'H' ? 'Hards' : p.fit === 'M' ? 'Mediums' : p.fit === 'S' ? 'Softs' : 'Inters'}.`);
     if (opt) add(3, 'plan', `Plan ${opt.letter}: ${opt.title} (projected P${opt.pos}).`, `${name}, we're on plan ${opt.letter}. ${opt.title}.`);
     if (tg?.target) {
       const dl = tg.delta;
