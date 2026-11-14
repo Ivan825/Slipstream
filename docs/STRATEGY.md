@@ -97,3 +97,24 @@ The engine is deterministic and explainable, not a learned model:
 - It assumes gaps between rivals hold while it projects the race.
 - It doesn't model overtaking difficulty beyond the traffic flag.
 - It shares the simulator's tyre model, so in a real deployment the model parameters would need fitting to real tyre data.
+
+
+## Real sessions: the race engineer's forward look
+
+On real timing (`client/src/lib/realStrategy.js` and `client/src/lib/raceEngine.js`) the strategist has no tyre or fuel model to share with the cars, so everything comes from the session itself, up to the clock.
+
+**Session model.** Pit loss is the median over stops so far of in-lap + out-lap − two green laps (×0.65 under a VSC, ×0.55 under a safety car, free under a red flag). Tyre life per compound is the upper quartile of finished stints, never far below a typical value, since early stops say little about how long a set lasts. Degradation is the least-squares slope of clean lap times on the current set plus the fuel effect (0.06 s per lap).
+
+**Projection.** Each car runs lap by lap to the flag:
+
+```
+lap time = pace on a fresh medium now + compound offset + degradation × age + cliff(age − life) − 0.06 s × laps from now
+```
+
+with a quadratic cliff past the set's life (linear after eight laps over). Rivals follow their likely plan: box now if the strategist says so, otherwise a stop at about 85% of the set's life when the tyres won't reach the flag.
+
+**Battles.** For each of our cars and the three cars either side, the engine finds the lap the gap comes within a second (DRS range) and the lap the cars swap, and whether the swap is on track or through a stop. An on-track pass needs a pace edge that depends on the circuit (long DRS zones make it easier); the probability is a logistic on the pace difference at that lap. The place is the circuit's main overtaking zone.
+
+**Options.** Every no-stop plan, every one-stop lap per compound, the best two-stop pair per compound combination (on a two-lap grid), box now, and extend five laps past the best window, simulated against the field. Ranking adds 4 s for a set past its life and 0.8 s for a rejoin within 1.5 s of another car. A switch alert fires when the best plan changes shape (stops or compound) and gains more than a second over the old one.
+
+**Priority.** Each car gets a stake: threats and chances in the next eight laps, positions a change of plan would win, tyre wear and track position. Two cars stopping within a lap of each other get a pit order and a double-stack cost (a typical stop of 2.6 s, less any gap between them); a faster car within 2.5 s behind its team-mate gets a swap call.

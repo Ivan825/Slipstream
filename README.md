@@ -155,6 +155,18 @@ Every frame identifies its source, sequence number and timestamp:
 - **Team alerts.** A watcher on the session clock raises what an engineer needs to hear about your cars: the strategist's call changing to a stop, an undercut threat, a rival around you pitting, safety cars, red flags and rain.
 - **Archive:** any session can also be opened on a shared clock for everyone looking at it, for a quick review.
 
+**The race engineer's deck.** Under the real pit wall, five tabs work the session for your two cars:
+
+- **Battle forecast:** every car projected lap by lap to the flag (pace now, degradation on the set, fuel burn, a tyre cliff past its life, and the stop it is likely to make). For each of your cars it lists who catches whom and on which lap, whether the swap happens on track or through a stop (an undercut, or losing the place at your own stop), and **where**: the overtaking zone it would most likely happen in (*DRS 1 into T1*), with an on-track pass probability from the pace difference. A gap chart draws the projected gap to each rival over the remaining laps, and the timing tower gets a projected-finish column.
+- **Strategies:** every no-stop, one-stop (any lap, any compound) and two-stop plan, plus *box now* (undercut) and *extend five laps* (overcut), simulated to the flag against the field's likely plans and ranked by time with a margin for risk (a set run past its life, a rejoin in traffic). Plan A, B, C… with projected finishing position and a stint bar. When the best plan changes the team watcher calls a **strategy switch**.
+- **Driver priority:** which car to look after first (threats, chances, tyre wear, positions a change of plan could win), the pit order and whether a double stack is affordable, team orders (swap when the car behind is clearly quicker, hold otherwise) and splitting strategies when both cars fight the same rival.
+- **Tyres:** estimated surface and core temperature and wear for each corner of your cars, coloured against the compound's working window. Public timing has no tyre sensors, so a small thermal model runs on each car's live speed, cornering load (from its yaw rate), braking and traction. Beside it, real data: degradation (lap time against tyre age on the current set, with fitted slopes) and the whole field's tyre history.
+- **Team radio:** the drivers' real radio clips from the session. With sound on, your cars' clips play as they come in (or every car's), one at a time.
+
+**Sound.** The nav's sound switch turns on alert tones, the engineer's voice reading out your cars' calls (*"Norris, box, box"*, battles, strategy switches) and team radio. Browsers only allow audio after a click, so the switch itself unlocks it with a short chirp.
+
+**The circuit, in detail.** The real track map is built from one clean lap of the session: the start/finish line and direction of travel, sectors 1–3, corners (from speed minima, so a chicane may count as one), DRS zones (learnt from every car's DRS as the session plays; the longest straights stand in when cars have no DRS), the speed trap, yellow flags shaded by marshal sector, battles under a second, and a ghost showing where the selected car would rejoin if it boxed now. It can also be coloured by speed or by sector. Lap *X / N* is shown everywhere (for a live race without a known count, estimated from the 305 km rule).
+
 The strategist works from the session's own data, up to the clock: pit loss measured from the stops already made (and what it costs under a VSC or safety car), degradation from lap times on the current set, tyre life from finished stints, where each car would rejoin if it boxed now, undercut threats and chances, the second-dry-compound rule, and a suggested set to fit.
 
 There's one feed path behind all of it. The server streams a session in 2-minute chunks just ahead of the clock. Every chunk is packed into one compressed MongoDB document (about 100 KB for two minutes of all 20 cars), so a session is downloaded once. Stored sessions are capped at a size budget (`REPLAY_CACHE_MB`, default 200 MB) and the least recently used are dropped first; they download again if needed.
@@ -350,6 +362,7 @@ Working end to end on one machine and in Docker:
 - **One server process.** Rooms and race state live in memory. One process sustains more than 5,000 events/s with 500 dashboards on a laptop. Going further would mean splitting into a single ingest/compute node plus fan-out nodes joined by the Socket.IO Redis adapter. That's designed for but not built.
 - **Clocks.** Source-to-dashboard latency uses the source timestamp, so it's exact only when the sources and the server share a clock, which they do in the bundled setup. Round-trip latency on the Systems page and the session countdown are corrected for clock offset.
 - **The strategist is a model.** It's deterministic and explainable, and only as good as the tyre and weather model it shares with the simulator.
+- **Real-session projections are estimates.** Public timing has no fuel loads, tyre temperatures or the teams' own models: degradation and tyre life are fitted from the session's lap times and finished stints, and tyre temperatures come from a thermal model. Corner numbers are detected, so they can differ from the official ones.
 
 ## Credits
 

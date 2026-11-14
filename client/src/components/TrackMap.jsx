@@ -145,7 +145,7 @@ export default function TrackMap() {
       <div className="mapbox">
         <canvas ref={ref} onClick={onClick} style={{ cursor: 'pointer' }} aria-label="Live track map. Click a car to select it." />
         <div className="ov tl">
-          <h4>Marina Ridge</h4><span className="mu">5.218 km · {t.corners.length} turns · {race.cars.size} cars</span>
+          <h4>Marina Ridge</h4><span className="mu">5.218 km · {t.corners.length} turns · {t.drs.length} DRS zones · {race.cars.size} cars{session?.type === 'race' && session?.totalLaps ? ` · lap ${session.lap || 0} / ${session.totalLaps}` : ''}</span>
           <div className="seg pe" style={{ marginTop: 8 }}>
             {[['speed', 'Speed heat'], ['sectors', 'Sectors'], ['dominance', 'Dominance']].map(([k, l]) => (
               <button key={k} className={mode === k ? 'on' : ''} onClick={() => setMode(k)}>{l}</button>
