@@ -111,7 +111,7 @@ export default function Home() {
         <div>
           <div className="lbl" style={{ color: 'rgba(255,255,255,.7)' }}>Race engineering software</div>
           <h1>Run the pit wall</h1>
-          <p>Strategy, telemetry and alerts for a race team, on real Formula 1 timing. Work the live session, rehearse on any past race as a mock session with your own clock and a debrief, or drill a full weekend in the simulator.</p>
+          <p>Strategy, telemetry and alerts for a race team, on real Formula 1 timing. Work the live session, rehearse any past race as a mock session with your own clock and a debrief, take over a real race at any lap and run it yourself, or drill a full weekend in the simulator.</p>
           <div className="row" style={{ marginTop: 14, gap: 12 }}>
             <TeamPicker />
             {!user && <button className="btn sm ghost" onClick={() => nav('/login')}>Sign in as your team's crew</button>}
@@ -135,7 +135,7 @@ export default function Home() {
         </div>
 
         <div className="card home-card hl" id="mock-card">
-          <div className="card-h"><b>Mock session</b><span className="chip">rehearse a past race</span></div>
+          <div className="card-h"><b>Mock session · takeover</b><span className="chip">rehearse or rerun a past race</span></div>
           <div className="card-b stack" style={{ gap: 10 }}>
             <p className="mu" style={{ margin: 0, fontSize: 13 }}>Your crew gets a private copy of a past race on its own clock. Pause, jump to any lap, make your pit calls, then debrief them against what the real team did.</p>
             <label className="stack" style={{ gap: 4 }}><span className="lbl">Session</span>
