@@ -40,7 +40,7 @@ function RealSessionBar() {
     <div className="sessbar">
       <div className="sb-gp"><span className="tag" style={{ background: state.live ? 'var(--red)' : meta.mock ? 'var(--cyan)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'LIVE' : meta.mock ? 'MOCK' : 'REPLAY'}</span><div><small>{meta.circuit} · {state.live ? 'OpenF1 live feed' : meta.mock ? 'mock session · your own clock' : 'OpenF1 historical feed · shared clock'}</small><b>{meta.year} {meta.country} · {meta.type}</b></div></div>
       {/Race|Sprint$/.test(meta.type)
-        ? <div className="sb-lap"><small>Lap</small><b>{leaderLap}</b></div>
+        ? <div className="sb-lap"><small>Lap</small><b>{leaderLap} <span>/ {meta.totalLaps ?? (meta.info?.length ? `~${Math.ceil(305_000 / meta.info.length)}` : '—')}</span></b></div>
         : <div className="sb-lap"><small>Session clock</small><b className="clock">{clockText(state.t - state.from)}</b></div>}
       <span className={`track-status ts-${flagCls}`}>{flagText}</span>
       {w && <div className="sb-wx"><span><small>Air</small><b>{w.air}°C</b></span><span><small>Track</small><b>{w.track}°C</b></span><span><small>Rain</small><b style={{ color: w.rain ? 'var(--cyan)' : undefined }}>{w.rain ? 'YES' : 'NO'}</b></span></div>}

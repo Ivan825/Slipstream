@@ -29,7 +29,7 @@ export default function RealTrack({ meta, drivers, selected, onSelect, rows = []
     const g = get();
     if (!g || !g.w || !c) return;
     const { ctx, w, h, dpr } = g;
-    const key = `${w}x${h}@${dpr}:${g.v}:${mode}:${yKey}:${compact}`;
+    const key = `${w}x${h}@${dpr}:${g.v}:${mode}:${yKey}:${compact}:${c.ver}`;
     if (off.current.key !== key) {
       const cv = off.current.canvas || document.createElement('canvas');
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -59,6 +59,8 @@ export default function RealTrack({ meta, drivers, selected, onSelect, rows = []
       if (last && Math.hypot(last.x - x, last.y - y) > 80) tr.length = 0;
       const i = c.nearest(p.x, p.y, hint.current.get(n));
       hint.current.set(n, i);
+      const rc = replayCars.get(n);
+      if (rc?.drs && rc.v > 180) c.noteDrs(i, true);
       cars.push({ n, x, y, i, d: drivers.get(n), tr });
     }
     const byN = new Map(cars.map((k) => [k.n, k]));

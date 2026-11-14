@@ -14,6 +14,9 @@ import { useRealAnalysis } from './RealTelemetry.jsx';
 import { TeamAlerts } from './RealStrategy.jsx';
 import { formatLapTime } from '@slipstream/shared';
 import RealTrack from '../components/RealTrack.jsx';
+import RaceDeck from '../components/RaceDeck.jsx';
+import { raceEngine } from '../lib/raceEngine.js';
+import { circuitOf } from '../lib/circuit.js';
 
 export { RealTrack, DriverPanel, FLAG, clock, gapText };
 
@@ -148,6 +151,7 @@ export function Channel({ channelKey }) {
   const analysis = useRealAnalysis(opened ? ch : null);
   const [lapTo, setLapTo] = useState('');
   const drivers = useMemo(() => new Map((meta?.drivers || []).map((d) => [d.n, d])), [meta]);
+  const eng = opened && meta && state.loaded ? raceEngine({ meta, state, rows, data: analysis, team, circuit: circuitOf(meta), focus: selected }) : null;
   // focus the crew's lead car when the session opens
   const ours = useMemo(() => teamDrivers(meta, team), [meta, team]);
   const focused = useRef(null);
@@ -185,6 +189,11 @@ export function Channel({ channelKey }) {
   };
   const sel = drivers.get(selected) || drivers.get(rows[0]?.n);
   const w = state.weather;
+  const isRace = /Race|Sprint$/.test(meta.type);
+  const totalLaps = eng?.total.laps ?? meta.totalLaps ?? null;
+  const plan = isRace && sel ? eng?.s.plans.get(sel.n) : null;
+  const ghost = plan?.rejoin && state.flag !== 'RED' && (state.t - state.from) > 120_000 ? { pos: plan.rejoin.pos, ahead: plan.rejoin.ahead?.n, gapAhead: plan.rejoin.gapAhead, behind: plan.rejoin.behind?.n, gapBehind: plan.rejoin.gapBehind, refLap: eng.model.ref.get(sel.n) || eng.model.fieldRef } : null;
+  const yellows = state.yellows || [];
 
   return (
     <div className="stack">
@@ -194,7 +203,9 @@ export function Channel({ channelKey }) {
           <span className="tag" style={{ background: state.live ? 'var(--red)' : mock ? 'var(--cyan)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'Live feed' : mock ? 'Mock session' : 'Replay'} · OpenF1</span>
           <div><div className="lbl">{meta.circuit} · {meta.type}</div><b style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' }}>{meta.year} {meta.country}</b></div>
           <div className="kv"><small>{state.live ? 'Session time' : 'Clock'}</small><b className="mono">{clock(elapsed)} <span className="mu" style={{ fontSize: 13 }}>/ {clock(total)}</span></b></div>
-          {/Race|Sprint$/.test(meta.type) && <div className="kv"><small>Leader lap</small><b>{leaderLap}</b></div>}
+          {isRace && <div className="kv"><small>Lap</small><b>{leaderLap}<span className="mu" style={{ fontSize: 14 }}> / {totalLaps ?? '—'}{eng?.total.est ? '*' : ''}</span></b></div>}
+          {isRace && totalLaps && <div className="kv"><small>To go</small><b>{Math.max(0, totalLaps - leaderLap)}</b></div>}
+          {yellows.length > 0 && <span className="chip" style={{ borderColor: 'var(--yel)', color: 'var(--yel)' }}>YELLOW · sector{yellows.length > 1 ? 's' : ''} {yellows.map((y) => y.sector).join(', ')}</span>}
           <span className={`track-status ts-${flagCls}`} style={{ margin: 0 }}>{flagText}</span>
           {w && <div className="kv"><small>Air · track · rain</small><b style={{ fontSize: 15 }}>{w.air}° · {w.track}° · <span style={{ color: w.rain ? 'var(--cyan)' : undefined }}>{w.rain ? 'RAIN' : 'dry'}</span></b></div>}
           {state.bestLap && <div className="kv"><small>Fastest lap</small><b style={{ fontSize: 15, color: 'var(--pur)' }}>{drivers.get(state.bestLap.n)?.code} {lt(state.bestLap.time)}</b></div>}
@@ -239,20 +250,21 @@ export function Channel({ channelKey }) {
               const d = drivers.get(r.n);
               if (!d) return null;
               return (
-                <div key={r.n} className={`tw ${r.n === sel?.n ? 'sel' : ''} ${i === 0 ? 'p1' : ''}`} style={{ '--tc': d.color, gridTemplateColumns: '26px 4px minmax(0,1fr) 80px 22px', background: team && sameTeam(d.team, team) && r.n !== sel?.n ? 'rgba(56,216,255,.08)' : undefined }} onClick={() => select(r.n)} title={`${d.name} · ${d.team}`}>
+                <div key={r.n} className={`tw ${r.n === sel?.n ? 'sel' : ''} ${i === 0 ? 'p1' : ''}`} style={{ '--tc': d.color, gridTemplateColumns: '26px 4px minmax(0,1fr) 74px 22px 30px', background: team && sameTeam(d.team, team) && r.n !== sel?.n ? 'rgba(56,216,255,.08)' : undefined }} onClick={() => select(r.n)} title={`${d.name} · ${d.team}`}>
                   <span className="p">{r.pos < 99 ? r.pos : '–'}</span>
                   <span className="tb" style={{ background: d.color }} />
                   <span className="c">{d.code}<small>{r.n}</small>{r.pits > 0 && <small style={{ color: 'var(--yel)' }}>{r.pits} PIT</small>}</span>
                   <span className="g">{i === 0 ? (r.lap ? `LAP ${r.lap}` : 'LEADER') : gapText(r.gap) || gapText(r.int) || '—'}</span>
                   {r.tc ? <Tyre c={r.tc} age={r.ta} /> : <span />}
+                  <ProjCell n={r.n} pos={r.pos} eng={eng} />
                 </div>
               );
             })}
           </div>
-          <div className="tw-foot"><span>positions, intervals and laps from OpenF1</span><span className="mono">room · replay</span></div>
+          <div className="tw-foot"><span>positions, intervals and laps from OpenF1{eng && isRace ? ' · last column: projected finish' : ''}</span><span className="mono">room · replay</span></div>
         </div>
 
-        <div className="card mapcard"><RealTrack meta={meta} drivers={drivers} selected={sel?.n} onSelect={select} /></div>
+        <div className="card mapcard"><RealTrack meta={meta} drivers={drivers} selected={sel?.n} onSelect={select} rows={rows} yellows={yellows} ghost={ghost} lap={isRace ? leaderLap : null} total={totalLaps} /></div>
 
         <div className="rcol" style={{ gridTemplateRows: ours.length ? 'auto auto auto minmax(0,1fr)' : 'auto auto minmax(0,1fr)' }}>
           {sel && <DriverPanel d={sel} row={rows.find((r) => r.n === sel.n)} />}
@@ -281,11 +293,20 @@ export function Channel({ channelKey }) {
           </div>
         </div>
       </div>
+      <RaceDeck />
       <p className="mu" style={{ fontSize: 12, margin: 0 }}>
         Real timing and telemetry from <a href="https://openf1.org" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>OpenF1</a>, an unofficial open API, used here for non-commercial demonstration. Not associated with Formula 1 companies. Car data is sampled at about 3.7 Hz and fed through the same real-time path a live feed uses, on one shared clock for every viewer in the session's <span className="mono">replay:{meta.key}</span> room.
       </p>
     </div>
   );
+}
+
+/** projected finishing position in the timing tower: ▲ gains, ▼ losses */
+function ProjCell({ n, pos, eng }) {
+  const c = eng?.s.isRace ? eng.proj.cars.get(n) : null;
+  if (!c || pos >= 99) return <span />;
+  const dp = pos - c.projPos;
+  return <span className="proj" title={`Projected to finish P${c.projPos}`} style={{ color: dp > 0 ? 'var(--grn)' : dp < 0 ? 'var(--red)' : 'var(--mu)' }}>{dp > 0 ? '▲' : dp < 0 ? '▼' : '·'}{c.projPos}</span>;
 }
 
 function DriverPanel({ d, row }) {

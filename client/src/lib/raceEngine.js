@@ -291,14 +291,14 @@ export function priorityFor(ours, proj, s, battles, options) {
 }
 
 /* ---------------- one shared computation per session tick ---------------- */
-let memo = { k: null, v: null };
+const memo = new Map(); // a few recent results: the panels and the team watcher ask with different focus
 
 /** everything above for the current moment, shared by every panel (recomputed every two seconds of session time) */
 export function raceEngine({ meta, state, rows, data, team, circuit, focus }) {
   if (!meta || !data || !rows?.length) return null;
   const tKey = Math.floor((state.t || 0) / 2000);
   const k = `${meta.ch ?? meta.key}|${tKey}|${team || ''}|${focus || ''}|${state.flag}|${!!state.weather?.rain}|${rows.length}`;
-  if (memo.k === k) return memo.v;
+  if (memo.has(k)) return memo.get(k);
   const model = sessionModel(data, state.t || 0, meta.live);
   const total = totalLapsOf(meta, model);
   model.totalLaps = total.laps;
@@ -315,6 +315,7 @@ export function raceEngine({ meta, state, rows, data, team, circuit, focus }) {
   const options = new Map(focusN.map((n) => [n, optionsFor(n, proj, s)]));
   const priority = oursD.length ? priorityFor(oursD, proj, s, battles, options) : null;
   const v = { model, s, proj, total, focus: focusN, ours: oursD, battles, options, priority, R };
-  memo = { k, v };
+  memo.set(k, v);
+  if (memo.size > 4) memo.delete(memo.keys().next().value);
   return v;
 }

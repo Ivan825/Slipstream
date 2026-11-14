@@ -76,17 +76,24 @@ export function build(track, info) {
   const cornerBefore = (i) => [...corners].reverse().find((c) => c.i < i % N) || corners[corners.length - 1];
   const lenM = (a, b) => (b >= N ? cum[N] - cum[a] + cum[b - N] : cum[b] - cum[a]) * metresPerUnit;
 
-  const drsRaw = info?.drs?.length === N ? runs((i) => info.drs[i] === 1, Math.max(3, Math.round(N / 80))) : [];
-  const drs = drsRaw.map(([a, b], k) => ({ n: k + 1, a, b, m: Math.round(lenM(a, b)), into: cornerAfter(b), after: cornerBefore(a) }));
   // full-speed straights, longest first
   const fast = runs((i) => sm[i] >= vmin + (vmax - vmin) * 0.78, Math.max(4, Math.round(N / 50)))
     .map(([a, b]) => ({ a, b, m: Math.round(lenM(a, b)), into: cornerAfter(b), after: cornerBefore(a) }))
     .sort((x, y) => y.m - x.m);
-  const zones = (drs.length ? drs.slice().sort((x, y) => y.m - x.m) : fast.slice(0, 3)).map((z, k) => ({
-    ...z, kind: drs.length ? 'DRS' : 'straight', rank: k,
-    label: `${z.kind === 'DRS' || drs.length ? `DRS ${z.n}` : 'straight'}${z.into ? ` into T${z.into.n}` : ''}`
-  }));
-  zones.forEach((z) => { z.label = drs.length ? `DRS ${z.n}${z.into ? ` into T${z.into.n}` : ''}` : `${Math.round(z.m)} m straight${z.into ? ` into T${z.into.n}` : ''}`; });
+  const minDrs = Math.max(3, Math.round(N / 80));
+  const C = { drs: [], zones: [], hasDrs: false, ver: 0 };
+  /** DRS zones from per-point flags (0/1); the overtaking zones follow: DRS zones, else the longest straights */
+  const setDrs = (flags) => {
+    const drs = flags ? runs((i) => flags[i] === 1, minDrs).map(([a, b], k) => ({ n: k + 1, a, b, m: Math.round(lenM(a, b)), into: cornerAfter(b), after: cornerBefore(a) })) : [];
+    C.drs = drs;
+    C.hasDrs = drs.length > 0;
+    C.zones = (drs.length ? drs.slice().sort((x, y) => y.m - x.m) : fast.slice(0, 3)).map((z, k) => ({
+      ...z, kind: drs.length ? 'DRS' : 'straight', rank: k,
+      label: drs.length ? `DRS ${z.n}${z.into ? ` into T${z.into.n}` : ''}` : `${Math.round(z.m)} m straight${z.into ? ` into T${z.into.n}` : ''}`
+    }));
+    C.ver++;
+  };
+  setDrs(info?.drs?.length === N ? info.drs : null);
 
   let trap = 0;
   for (let i = 1; i < N; i++) if (sm[i] > sm[trap]) trap = i;
@@ -114,14 +121,36 @@ export function build(track, info) {
   /** the zone a car reaches next from point i, and the metres to it */
   const nextZone = (i) => {
     let bestZ = null, bm = Infinity;
-    for (const z of zones) { const d = ((z.a - i + N) % N); if (d < bm) { bm = d; bestZ = z; } }
+    for (const z of C.zones) { const d = ((z.a - i + N) % N); if (d < bm) { bm = d; bestZ = z; } }
     return bestZ;
   };
 
-  return {
-    N, cum, L, track, v: sm, vmax, vmin, estimated, lengthM, metresPerUnit, corners, drs, zones, fast, trap, brakes,
-    sectors, sectorsApprox, marshal, segs, nearest, nextZone, at, hasDrs: drs.length > 0
+  /*
+   * The reference lap may not have used DRS (it needs a car within a second
+   * ahead), so DRS zones are also learnt from every car as the session plays:
+   * each frame with DRS open marks the point the car is at.
+   */
+  const hits = new Float32Array(N);
+  let seen = 0, lastLearn = 0;
+  const noteDrs = (i, open) => {
+    if (!open) return;
+    hits[i] += 1; seen++;
+    if (seen - lastLearn < 200) return;
+    lastLearn = seen;
+    let mx = 0;
+    for (let k = 0; k < N; k++) mx = Math.max(mx, hits[k]);
+    const flags = Array.from(hits, (h) => (h >= Math.max(3, mx * 0.12) ? 1 : 0));
+    // close one-point gaps so a zone isn't split by a missed sample
+    for (let k = 0; k < N; k++) if (!flags[k] && flags[at(k - 1)] && flags[at(k + 1)]) flags[k] = 1;
+    const was = C.drs.map((z) => `${z.a}-${z.b}`).join();
+    const next = runs((k) => flags[k] === 1, minDrs);
+    if (next.length && next.map(([a, b]) => `${a}-${b}`).join() !== was) setDrs(flags);
   };
+
+  return Object.assign(C, {
+    N, cum, L, track, v: sm, vmax, vmin, estimated, lengthM, metresPerUnit, corners, fast, trap, brakes,
+    sectors, sectorsApprox, marshal, segs, nearest, nextZone, at, noteDrs
+  });
 }
 
 /** distance along the lap (0..1) for an outline index */

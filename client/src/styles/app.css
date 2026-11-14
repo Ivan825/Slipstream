@@ -386,3 +386,44 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 .link-btn { background: none; border: 0; padding: 0 2px; color: var(--mu); font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
 .link-btn:hover { color: #fff; }
 .team-pick select { font-weight: 700; }
+
+/* ---------- race engineer deck (real sessions) ---------- */
+.deck .card-h { flex-wrap: wrap; gap: 8px; }
+.deck-tabs button { font-size: 11px; padding: 5px 11px; }
+.deck-b { padding: 12px 14px 14px; }
+.deck-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 1100px) { .deck-grid { grid-template-columns: minmax(0, 1fr); } }
+.fc-car { background: var(--bg-2); border-radius: 6px; padding: 10px 12px; }
+.fc-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.fc-list li { display: grid; grid-template-columns: 4px 1fr auto; gap: 10px; align-items: center; font-size: 12.5px; }
+.fc-list li.mu { display: block; }
+.fc-list li > i { align-self: stretch; border-radius: 2px; }
+.fc-list li b { display: block; font-weight: 900; }
+.fc-list li span { color: var(--tx-2); font-size: 11.5px; }
+.fc-list.big li { padding: 8px 0; border-bottom: 1px solid var(--ln); font-size: 14px; }
+.gapchart { height: 150px; margin-top: 10px; }
+.gapchart canvas { width: 100%; height: 100%; display: block; }
+.proj { font-size: 10px; font-weight: 900; font-family: "JetBrains Mono", monospace; text-align: right; }
+.tyre-cars { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.tyre-car { background: var(--bg-2); border-radius: 6px; padding: 10px 12px; border-left: 3px solid var(--tc); }
+.tc-body { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 60px; padding: 4px 6px; }
+.tc-chassis { position: absolute; left: 50%; top: 10%; bottom: 10%; width: 34px; margin-left: -17px; border-radius: 14px 14px 8px 8px; background: linear-gradient(#2c2c38, #1d1d26); border: 1px solid #3a3a48; pointer-events: none; }
+.tc-tyre { border-radius: 8px; padding: 8px 10px; color: #15151e; display: flex; flex-direction: column; gap: 1px; transition: background .4s; min-height: 92px; }
+.tc-tyre small { font-weight: 900; font-size: 10px; letter-spacing: .1em; opacity: .75; }
+.tc-tyre b { font-size: 22px; font-weight: 900; line-height: 1.05; }
+.tc-tyre span { font-size: 10.5px; font-weight: 700; }
+.tc-wear { display: block; height: 5px; background: rgba(0,0,0,.25); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.tc-wear i { display: block; height: 100%; background: #15151e; }
+.sh-row { display: flex; align-items: center; gap: 8px; height: 22px; font-size: 11px; }
+.sh-bar { position: relative; flex: 1; height: 12px; background: #1a1a22; border-radius: 2px; }
+.sh-bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; color: #15151e; font-size: 9px; font-weight: 900; font-style: normal; text-align: center; line-height: 12px; border-right: 1px solid var(--bg); }
+.radio-list li.ours { background: rgba(0,200,255,.06); }
+.radio-list li.sel { background: rgba(255,255,255,.04); }
+.radio-now { display: inline-flex; align-items: center; gap: 6px; color: var(--cyan); border-color: var(--cyan); }
+.icon-btn.on { background: rgba(0,214,107,.22); }
+.track-key i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin: 0 4px 0 10px; }
+.track-key i:first-child { margin-left: 0; }
+.track-key .k-drs { background: repeating-linear-gradient(90deg, #00d66b 0 5px, transparent 5px 8px); }
+.track-key .k-yel { background: #ffd60a; height: 6px; }
+.track-key .k-bat { background: repeating-linear-gradient(90deg, #ffb020 0 3px, transparent 3px 6px); }
+.track-key .k-gh { width: 9px; height: 9px; border: 1.5px dashed #fff; border-radius: 50%; }

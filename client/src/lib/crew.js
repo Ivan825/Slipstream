@@ -135,7 +135,7 @@ export function useTeamWatch() {
           const state2 = soon ? 'soon' : range ? 'range' : 'none';
           const last = p.battles.get(k);
           if (state2 !== 'none' && state2 !== last && rival) {
-            say({ n: d.n, code: d.code, color: d.color, level: soon ? 'red' : 'amber', title: soon ? `${rival.code} projected to pass ${d.code} in ${b.swapLap} lap${b.swapLap === 1 ? '' : 's'}` : `${rival.code} within ${b.gapNow.toFixed(1)} s of ${d.code}`, text: `${Math.round(b.prob * 100)}% on-track chance · most likely ${b.zone ? b.zone.label : 'on the main straight'} · ${b.paceNow > 0 ? `${b.paceNow.toFixed(2)} s/lap quicker` : 'similar pace'}`, voice: soon ? `${first(d)}, ${rival.last || rival.code} is coming, ${b.paceNow > 0 ? `${b.paceNow.toFixed(1)} a lap quicker` : 'defend'}.` : null });
+            say({ n: d.n, code: d.code, color: d.color, level: soon ? 'red' : 'amber', title: soon ? `${rival.code} projected to pass ${d.code} in ${b.swapLap} lap${b.swapLap === 1 ? '' : 's'}` : `${rival.code} within ${b.gapNow.toFixed(1)} s of ${d.code}`, text: `${b.via === 'on track' ? `${Math.round(b.prob * 100)}% on-track chance · ` : ''}attack most likely ${b.zone ? b.zone.label : 'on the main straight'} · ${b.paceNow > 0.05 ? `${rival.code} ${b.paceNow.toFixed(2)} s/lap quicker` : `${d.code} has the pace to hold`}`, voice: soon ? `${first(d)}, ${rival.last || rival.code} is coming, ${b.paceNow > 0 ? `${b.paceNow.toFixed(1)} a lap quicker` : 'defend'}.` : null });
           }
           p.battles.set(k, state2);
         }

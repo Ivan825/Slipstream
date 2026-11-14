@@ -98,7 +98,7 @@ export default function RealTelemetry() {
           <div className="merge-note"><span>car data from OpenF1 at ~3.7 Hz, streamed in 2-minute chunks and replayed on the session clock</span><span>speed trap = <b>{laps[0]?.st ?? '—'}</b> km/h last lap</span></div>
         </div>
         <div className="stack">
-          <div className="card" style={{ height: 300 }}><RealTrack meta={meta} drivers={drivers} selected={n} onSelect={(x) => nav(`/car/${x}`)} /></div>
+          <div className="card" style={{ height: 300 }}><RealTrack meta={meta} drivers={drivers} selected={n} onSelect={(x) => nav(`/car/${x}`)} rows={rows} yellows={state.yellows || []} compact /></div>
           <div className="card">
             <div className="card-h"><b>Laps</b><span className="chip">{laps.length} completed</span></div>
             <div className="scroll" style={{ maxHeight: 260 }}>
