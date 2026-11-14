@@ -85,6 +85,14 @@ export const useUI = create((set, get) => ({
   setRealDriver(n) { set({ realDriver: n }); uiSave({ ...uiLoad(), realDriver: n }); },
   selected: ui0.selected || null,
   sound: !!ui0.sound,
+  // which team radio plays by itself with sound on: our cars ('ours'), every car ('all') or none
+  radioAuto: ui0.radioAuto || 'ours',
+  setRadioAuto(v) { set({ radioAuto: v }); uiSave({ ...uiLoad(), radioAuto: v }); },
+  // real pit wall map: track details, speed heat or sectors
+  realMap: ui0.realMap || 'track',
+  setRealMap(v) { set({ realMap: v }); uiSave({ ...uiLoad(), realMap: v }); },
+  deckTab: ui0.deckTab || 'forecast',
+  setDeckTab(v) { set({ deckTab: v }); uiSave({ ...uiLoad(), deckTab: v }); },
   mapMode: ui0.mapMode || 'speed',
   palette: false,
   select(id) { set({ selected: id }); uiSave({ ...uiLoad(), selected: id }); },

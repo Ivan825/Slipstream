@@ -14,7 +14,7 @@ import { useEffect } from 'react';
 import { NS, EV, decodeRaceRow, CARS, getTrack, formatLapTime, CAR_BY_ID } from '@slipstream/shared';
 import { API_URL, api } from './api.js';
 import { useSession, useTiming, useAlerts, useStrategy, useMetrics, useLaps, useToasts, useUI } from '../store/stores.js';
-import { beep } from './sound.js';
+import { beep, speak } from './sound.js';
 import { useReplay, onReplayFrame } from '../store/replay.js';
 
 const TRACK = getTrack();
@@ -179,8 +179,8 @@ export function connectLive(token) {
     useAlerts.getState().add(a);
     if (a.severity === 'crit') {
       useToasts.getState().push({ kind: 'red', title: `${a.severity === 'crit' ? 'BOX BOX · ' : ''}${a.carId}`, text: a.message, ms: 7000 });
-      if (useUI.getState().sound) beep('alert');
-    }
+      if (useUI.getState().sound) { beep('alert'); speak(`${a.carId}, ${a.title}.`); }
+    } else if (a.severity === 'warn' && useUI.getState().sound) beep('info');
   });
   socket.on(EV.ALERT_ACKED, (e) => useAlerts.getState().acked(e));
   socket.on(EV.STRATEGY, (s) => useStrategy.getState().put(s));

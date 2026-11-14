@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { tyreStep, tyres } from '../lib/tyreModel.js';
 
 /** Real-session replay state. Positions are mutable (read by the canvas), the rest is React state. */
 export const replayCars = new Map(); // n -> { x, y, px, py, t, pt, v, g, thr, brk, drs, rpm }
@@ -40,6 +41,7 @@ export function onReplayFrame(f) {
     else if (f.t < tr[tr.length - 1].t) tr.length = 0;
     while (tr.length && f.t - tr[0].t > 120_000) tr.shift();
   }
+  tyreStep(f.t, f.cars, useReplay.getState().state?.weather?.track);
 }
 
 /** interpolated position for drawing at 60 fps */
@@ -69,10 +71,11 @@ export const useReplay = create((set, get) => ({
   rows: [],
   rc: [],
   feed: [],
+  radio: [], // team radio clips heard so far, newest first: { t, n, url }
   selected: null,
   open(key) {
-    replayCars.clear(); replayTrace.clear();
-    set({ key: String(key), meta: null, state: { loaded: false }, rows: [], rc: [], feed: [], selected: null });
+    replayCars.clear(); replayTrace.clear(); tyres.clear();
+    set({ key: String(key), meta: null, state: { loaded: false }, rows: [], rc: [], feed: [], radio: [], selected: null });
   },
   snapshot(s) {
     if (!s?.meta) return set({ state: s?.state || { loaded: false } });
@@ -82,12 +85,12 @@ export const useReplay = create((set, get) => ({
     useReplay.setState({ key: ch });
     if (s.frame) onReplayFrame({ ...s.frame, k: ch });
     const sel = get().selected;
-    set({ key: ch, meta: s.meta, state: s.state, rows: s.rows || [], rc: s.rc || [], feed: [], selected: sel && s.meta.drivers.some((d) => d.n === sel) ? sel : s.rows?.[0]?.n || null });
+    set({ key: ch, meta: s.meta, state: s.state, rows: s.rows || [], rc: s.rc || [], feed: [], radio: s.radio || [], selected: sel && s.meta.drivers.some((d) => d.n === sel) ? sel : s.rows?.[0]?.n || null });
   },
   mine(m) { return m?.k == null || String(m.k) === get().key; },
   setState(st) {
     if (!get().mine(st)) return;
-    if (get().state.t && st.t < get().state.t - 1000) { replayTrace.clear(); set({ feed: [] }); }
+    if (get().state.t && st.t < get().state.t - 1000) { replayTrace.clear(); set({ feed: [], radio: get().radio.filter((r) => r.t <= st.t) }); }
     set({ state: { ...get().state, ...st } });
   },
   timing(m) {
@@ -100,9 +103,10 @@ export const useReplay = create((set, get) => ({
     const evs = msg.events || [];
     const rc = evs.filter((e) => e.type === 'rc');
     const feed = evs.filter((e) => e.type === 'pit' || (e.type === 'lap' && e.fastest));
+    const radio = evs.filter((e) => e.type === 'radio').map((e) => ({ t: e.t, n: e.n, url: e.url, fresh: true }));
     const st = { ...get().state };
     for (const e of evs) if (e.type === 'weather') st.weather = { air: e.air, track: e.track, rain: e.rain, humidity: e.humidity, wind: e.wind };
-    set({ rc: [...rc.reverse(), ...get().rc].slice(0, 40), feed: [...feed.reverse(), ...get().feed].slice(0, 30), state: st });
+    set({ rc: [...rc.reverse(), ...get().rc].slice(0, 40), feed: [...feed.reverse(), ...get().feed].slice(0, 30), state: st, ...(radio.length ? { radio: [...radio.reverse(), ...get().radio].slice(0, 60) } : {}) });
   },
   select(n) { set({ selected: n }); }
 }));

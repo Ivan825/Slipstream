@@ -127,7 +127,7 @@ export const PitStop = model('PitStop', PitStopSchema);
 /* ---------- real-session replay (OpenF1) ---------- */
 const ReplaySessionSchema = new Schema({
   key: { type: Number, unique: true }, v: Number, name: String, year: Number, circuit: String, country: String, location: String, type: String,
-  meeting: Number, from: Date, to: Date, drivers: [Schema.Types.Mixed], stints: [Schema.Types.Mixed], track: [[Number]],
+  meeting: Number, from: Date, to: Date, drivers: [Schema.Types.Mixed], stints: [Schema.Types.Mixed], track: [[Number]], info: Schema.Types.Mixed, xv: Number, totalLaps: Number,
   complete: Boolean, chunks: [Number], chunkMs: Number, frames: Number, events: Number, importedAt: Date, lastUsed: Date
 }, { versionKey: false });
 export const ReplaySession = model('ReplaySession', ReplaySessionSchema);

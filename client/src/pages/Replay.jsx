@@ -13,6 +13,7 @@ import { sameTeam, teamDrivers } from '../lib/teams.js';
 import { useRealAnalysis } from './RealTelemetry.jsx';
 import { TeamAlerts } from './RealStrategy.jsx';
 import { formatLapTime } from '@slipstream/shared';
+import RealTrack from '../components/RealTrack.jsx';
 
 export { RealTrack, DriverPanel, FLAG, clock, gapText };
 
@@ -311,86 +312,6 @@ function DriverPanel({ d, row }) {
         <div className="kv"><small>Best</small><b style={{ fontSize: 15 }}>{lt(row?.best)}</b></div>
         <div className="kv"><small>Tyre</small><b style={{ fontSize: 15 }}>{row?.tc ? `${row.tc} · ${row.ta}` : '—'}</b></div>
       </div>
-    </div>
-  );
-}
-
-function RealTrack({ meta, drivers, selected, onSelect }) {
-  const [ref, get] = useCanvas();
-  const fitRef = useRef(null);
-  const trails = useRef(new Map());
-  const [mode] = useState('names');
-  useAnimationFrame((ts) => {
-    const g = get();
-    if (!g || !g.w || !meta.track?.length) return;
-    const { ctx, w, h } = g;
-    if (!fitRef.current || fitRef.current.v !== g.v) {
-      const xs = meta.track.map((p) => p[0]), ys = meta.track.map((p) => p[1]);
-      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-      const pad = 50, s = Math.min((w - pad * 2) / (maxX - minX), (h - pad * 2) / (maxY - minY));
-      const ox = (w - (maxX - minX) * s) / 2, oy = (h - (maxY - minY) * s) / 2;
-      fitRef.current = { v: g.v, X: (x) => ox + (x - minX) * s, Y: (y) => h - (oy + (y - minY) * s) };
-      trails.current.clear();
-    }
-    const { X, Y } = fitRef.current;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(255,255,255,.045)';
-    for (let x = 10; x < w; x += 22) for (let y = 10; y < h; y += 22) ctx.fillRect(x, y, 1, 1);
-    const path = () => { ctx.beginPath(); meta.track.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)))); ctx.closePath(); };
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    path(); ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 26; ctx.stroke();
-    ctx.strokeStyle = '#3a3a48'; ctx.lineWidth = 18; ctx.stroke();
-    ctx.strokeStyle = '#22222c'; ctx.lineWidth = 13; ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 2; ctx.stroke();
-    const now = performance.now();
-    const cars = [];
-    for (const [n] of replayCars) {
-      const p = replayPos(n, now);
-      if (!p) continue;
-      const x = X(p.x), y = Y(p.y);
-      let tr = trails.current.get(n);
-      if (!tr) { tr = []; trails.current.set(n, tr); }
-      const last = tr[tr.length - 1];
-      if (!last || Math.hypot(last.x - x, last.y - y) > 1.5) { tr.push({ x, y }); if (tr.length > 16) tr.shift(); }
-      if (last && Math.hypot(last.x - x, last.y - y) > 80) tr.length = 0;
-      cars.push({ n, x, y, d: drivers.get(n), tr });
-    }
-    for (const c of cars) {
-      for (let k = 1; k < c.tr.length; k++) {
-        ctx.globalAlpha = (k / c.tr.length) * 0.5;
-        ctx.beginPath(); ctx.moveTo(c.tr[k - 1].x, c.tr[k - 1].y); ctx.lineTo(c.tr[k].x, c.tr[k].y);
-        ctx.strokeStyle = c.d?.color || '#888'; ctx.lineWidth = 3; ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-    }
-    for (const c of cars) {
-      const col = c.d?.color || '#888';
-      ctx.shadowColor = col; ctx.shadowBlur = 12;
-      ctx.beginPath(); ctx.arc(c.x, c.y, c.n === selected ? 7 : 5.5, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
-      ctx.shadowBlur = 0; ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
-      if (mode === 'names') {
-        ctx.font = c.n === selected ? '900 12px "Titillium Web"' : '700 10px "Titillium Web"';
-        ctx.fillStyle = c.n === selected ? '#fff' : 'rgba(255,255,255,.75)'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(c.d?.code || c.n, c.x + 9, c.y - 9);
-      }
-    }
-    const s = cars.find((c) => c.n === selected);
-    if (s) {
-      ctx.beginPath(); ctx.arc(s.x, s.y, 12 + 4 * Math.sin(ts / 200), 0, Math.PI * 2); ctx.strokeStyle = s.d?.color || '#fff'; ctx.lineWidth = 2; ctx.stroke();
-    }
-    ref.current._hits = cars;
-  }, [meta, selected, drivers]);
-  const onClick = (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - r.left, y = e.clientY - r.top;
-    const hit = (ref.current._hits || []).map((c) => ({ c, k: Math.hypot(c.x - x, c.y - y) })).sort((a, b) => a.k - b.k)[0];
-    if (hit && hit.k < 18) onSelect(hit.c.n);
-  };
-  return (
-    <div className="mapbox">
-      <canvas ref={ref} onClick={onClick} style={{ cursor: 'pointer' }} aria-label="Track map of the real session with every car" />
-      <div className="ov tl"><h4>{meta.circuit}</h4><span className="mu">{meta.drivers.length} cars · positions from the cars' own GPS-style coordinates</span></div>
-      <div className="ov br">car data streamed in 2-minute chunks · cached in MongoDB<br />5 Hz to the browser · interpolated 60 fps</div>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useReplay } from '../store/replay.js';
 import { useAuth, simRole } from '../store/auth.js';
 import { useSession, useUI, teamOf } from '../store/stores.js';
 import { TEAM_BY_ID } from '@slipstream/shared';
+import { unlockAudio, stopRadio } from '../lib/sound.js';
 
 export function Mark({ size = 30 }) {
   return (
@@ -56,7 +57,7 @@ export default function Nav() {
       </nav>
       <div className="nav-r">
         <button className="icon-btn" onClick={() => setPalette(true)} title="Command palette">Search <kbd>⌘K</kbd></button>
-        <button className="icon-btn" onClick={toggleSound} aria-pressed={sound} title="Team-radio sounds">{sound ? 'Sound on' : 'Sound off'}</button>
+        <button className={`icon-btn ${sound ? 'on' : ''}`} onClick={() => { toggleSound(); if (!sound) unlockAudio(); else stopRadio(); }} aria-pressed={sound} title={sound ? 'Sound on: team radio, the engineer\'s calls and alert tones. Click to mute.' : 'Sound off. Click for team radio, the engineer\'s calls and alert tones.'}>{sound ? '🔊 Sound on' : '🔇 Sound off'}</button>
         <span className={`live-pill ${connected ? '' : 'off'}`} title={latency != null ? `round trip ${latency} ms` : ''}><i />{connected ? 'LIVE' : 'OFFLINE'}</span>
         {user
           ? <><span className="hide-sm">{who}</span><button className="avatar" onClick={signOut} title="Sign out">{initials}</button></>

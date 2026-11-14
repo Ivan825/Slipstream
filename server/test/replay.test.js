@@ -91,3 +91,22 @@ test('a crew mock is private to that crew; a guest mock is open to its link', as
   assert.equal(canUseMock(guest, guestMock), true);
   assert.equal(canUseMock(fer, guestMock), true);
 });
+
+test('replay tracks marshal-sector yellows and streams team radio', () => {
+  const { e, sent, t0 } = engine();
+  e.events.push(
+    { t: t0 + 710, type: 'rc', data: { category: 'Flag', flag: 'YELLOW', message: 'YELLOW IN TRACK SECTOR 7', scope: 'Sector', sector: 7 } },
+    { t: t0 + 720, type: 'radio', data: { n: 1, url: 'https://example.test/a.mp3' } },
+    { t: t0 + 900, type: 'rc', data: { category: 'Flag', flag: 'CLEAR', message: 'CLEAR IN TRACK SECTOR 7', scope: 'Sector', sector: 7 } }
+  );
+  e.events.sort((a, b) => a.t - b.t);
+  e.seek(t0 + 800);
+  assert.deepEqual(e.state().yellows, [{ sector: 7, flag: 'YELLOW' }]);
+  assert.equal(e.snapshot().radio[0].url, 'https://example.test/a.mp3');
+  e.advanceTo(t0 + 950);
+  assert.deepEqual(e.state().yellows, [], 'cleared sector');
+  e.seek(t0);
+  e.advanceTo(t0 + 750);
+  const evs = sent.filter(([ev]) => ev === 'replay:events').flatMap(([, p]) => p.events);
+  assert.ok(evs.some((x) => x.type === 'radio' && x.n === 1));
+});

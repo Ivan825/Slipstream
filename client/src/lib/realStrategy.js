@@ -65,7 +65,8 @@ export function sessionModel(data, t, live) {
     const L = lengths[c] || [];
     // stints usually end by choice before the tyre is finished, so use the upper quartile
     const q = L.slice().sort((x, y) => x - y)[Math.floor(L.length * 0.75)];
-    life[c] = L.length >= 2 ? { laps: q, from: L.length } : { laps: LIFE_FALLBACK[c], from: 0 };
+    // early stops (damage, an early safety car) say little about how long a set lasts: never go far below the typical life
+    life[c] = L.length >= 3 ? { laps: Math.max(q, Math.round(LIFE_FALLBACK[c] * 0.7)), from: L.length } : { laps: LIFE_FALLBACK[c], from: 0 };
   }
 
   const totalLaps = live ? null : Math.max(0, ...data.laps.map((l) => l.lap));

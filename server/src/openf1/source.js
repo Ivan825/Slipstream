@@ -32,6 +32,49 @@ async function unpack(buf, a) {
 }
 const iso = (ms) => new Date(ms).toISOString().replace('Z', '');
 const ts = (s) => (s ? Date.parse(/Z|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z') : null);
+// what was recorded beyond the core timing (team radio, marshal sectors, circuit geometry); bump to backfill cached sessions
+export const EXTRAS = 1;
+const rcData = (r) => ({ category: r.category, flag: r.flag, message: r.message, lap: r.lap_number, n: r.driver_number, scope: r.scope, sector: r.sector ?? null });
+/** laps in a finished race: the most laps anyone completed */
+export function totalLapsOf(events, type) {
+  if (!/Race|Sprint/.test(type || '')) return null;
+  let m = 0;
+  for (const e of events) if (e.type === 'lap' && e.data.lap > m) m = e.data.lap;
+  return m || null;
+}
+
+/**
+ * The circuit from one clean lap: the outline (location samples), and for each
+ * outline point the speed, DRS and brake from the same car, plus where sectors 2
+ * and 3 start, how many mini-sectors each sector has and the lap length in metres.
+ */
+export async function circuitFromLap(key, n, a, b, lap = {}) {
+  const range = { session_key: key, driver_number: n, 'date>': iso(a), 'date<': iso(b) };
+  const loc = await openf1('location', range);
+  const car = await openf1('car_data', range).catch(() => []);
+  const pts = loc.filter((l) => l.x || l.y).map((l) => ({ t: ts(l.date), x: l.x, y: l.y })).sort((p, q) => p.t - q.t);
+  const step = Math.max(1, Math.floor(pts.length / 700));
+  const sel = pts.filter((_, i) => i % step === 0);
+  const cs = car.map((c) => ({ t: ts(c.date), v: c.speed, drs: c.drs >= 10 ? 1 : 0, brk: c.brake > 0 ? 1 : 0 })).sort((p, q) => p.t - q.t);
+  let j = 0;
+  const near = (t) => { while (j < cs.length - 1 && Math.abs(cs[j + 1].t - t) <= Math.abs(cs[j].t - t)) j++; return cs[j]; };
+  const v = [], drs = [], brk = [];
+  for (const p of sel) { const c = near(p.t); v.push(c?.v ?? 0); drs.push(c?.drs ?? 0); brk.push(c?.brk ?? 0); }
+  let length = 0;
+  for (let k = 1; k < cs.length; k++) { const dt = (cs[k].t - cs[k - 1].t) / 1000; if (dt > 0 && dt < 2) length += ((cs[k].v + cs[k - 1].v) / 2 / 3.6) * dt; }
+  const idxAt = (sec) => { if (!sec) return null; const t = a + sec * 1000; const i = sel.findIndex((p) => p.t >= t); return i > 0 ? i : null; };
+  const s1 = lap.duration_sector_1, s2 = lap.duration_sector_2;
+  const segs = [lap.segments_sector_1, lap.segments_sector_2, lap.segments_sector_3].map((x) => (Array.isArray(x) ? x.length : 0));
+  return {
+    track: sel.map((p) => [p.x, p.y]),
+    info: {
+      v, drs, brk, length: cs.length > 10 ? Math.round(length) : null,
+      sectors: s1 && s2 ? [idxAt(s1), idxAt(s1 + s2)] : null,
+      segments: segs.every((x) => x > 0) ? segs : null,
+      ref: { n, lap: lap.lap_number ?? null, time: (b - a) / 1000 }
+    }
+  };
+}
 
 /**
  * One real session from OpenF1, streamed on demand.
@@ -59,6 +102,8 @@ export class SessionSource {
         this.events = events.map((e) => ({ ...e, t: +e.t }));
         this.chunks = new Set(cached.chunks || []);
         ReplaySession.updateOne({ key: cached.key }, { lastUsed: new Date() }).catch(() => {});
+        if (cached.xv !== EXTRAS) await this.upgrade();
+        this.meta.totalLaps ??= totalLapsOf(this.events, this.meta.type);
         return this.meta;
       }
     }
@@ -66,14 +111,15 @@ export class SessionSource {
     if (!session) throw new Error(`OpenF1 session ${this.key} not found`);
     const key = session.session_key;
     this.key = key;
-    const [driversRaw, laps, positions, rc, weather, pits, stintsRaw] = [
+    const [driversRaw, laps, positions, rc, weather, pits, stintsRaw, radio] = [
       await openf1('drivers', { session_key: key }),
       await openf1('laps', { session_key: key }),
       await openf1('position', { session_key: key }),
       await openf1('race_control', { session_key: key }),
       await openf1('weather', { session_key: key }),
       await openf1('pit', { session_key: key }),
-      await openf1('stints', { session_key: key })
+      await openf1('stints', { session_key: key }),
+      await openf1('team_radio', { session_key: key }).catch(() => [])
     ];
     const drivers = driversRaw.map((d) => ({ n: d.driver_number, code: d.name_acronym, name: d.full_name, first: d.first_name, last: d.last_name, team: d.team_name, color: '#' + (d.team_colour || '888888'), country: d.country_code }));
     const stints = stintsRaw.map((s) => ({ n: s.driver_number, from: s.lap_start, to: s.lap_end, compound: s.compound, age: s.tyre_age_at_start }));
@@ -94,27 +140,24 @@ export class SessionSource {
       if (l.lap_duration) add(ts(l.date_start) + l.lap_duration * 1000, 'lap', { n: l.driver_number, lap: l.lap_number, time: l.lap_duration, s: [l.duration_sector_1, l.duration_sector_2, l.duration_sector_3], st: l.st_speed, pitOut: !!l.is_pit_out_lap });
     }
     for (const p of positions) add(ts(p.date), 'position', { n: p.driver_number, pos: p.position });
-    for (const r of rc) add(ts(r.date), 'rc', { category: r.category, flag: r.flag, message: r.message, lap: r.lap_number, n: r.driver_number, scope: r.scope });
+    for (const r of rc) add(ts(r.date), 'rc', rcData(r));
+    for (const r of radio) if (r.recording_url) add(ts(r.date), 'radio', { n: r.driver_number, url: r.recording_url });
     for (const w of weather) add(ts(w.date), 'weather', { air: w.air_temperature, track: w.track_temperature, rain: w.rainfall, humidity: w.humidity, wind: w.wind_speed });
     for (const p of pits) add(ts(p.date), 'pit', { n: p.driver_number, lap: p.lap_number, duration: p.pit_duration });
     events.sort((a, b) => a.t - b.t);
 
-    // circuit outline: one clean lap of location data for one car
-    let track = [];
+    // circuit outline and geometry: one clean lap of location and car data for one car
+    let track = [], info = null;
     const clean = laps.filter((l) => l.lap_duration && !l.is_pit_out_lap && l.lap_number >= 2 && l.date_start)
       .sort((a, b) => a.lap_duration - b.lap_duration)[0];
     if (clean) {
-      const a = ts(clean.date_start), b = a + clean.lap_duration * 1000;
-      const loc = await openf1('location', { session_key: key, driver_number: clean.driver_number, 'date>': iso(a), 'date<': iso(b) });
-      const pts = loc.filter((l) => l.x || l.y).map((l) => [l.x, l.y]);
-      const step = Math.max(1, Math.floor(pts.length / 700));
-      track = pts.filter((_, i) => i % step === 0);
+      const a = ts(clean.date_start);
+      ({ track, info } = await circuitFromLap(key, clean.driver_number, a, a + clean.lap_duration * 1000, clean));
     }
-
     this.meta = {
       v: VERSION, key, name: `${session.year} ${session.country_name} · ${session.session_name}`, year: session.year,
       circuit: session.circuit_short_name, country: session.country_name, location: session.location, type: session.session_name,
-      meeting: session.meeting_key, from: new Date(from), to: new Date(to), drivers, stints, track, complete, chunkMs: CHUNK_MS,
+      meeting: session.meeting_key, from: new Date(from), to: new Date(to), drivers, stints, track, info, xv: EXTRAS, totalLaps: complete ? totalLapsOf(events, session.session_name) : null, complete, chunkMs: CHUNK_MS,
       events: events.length, importedAt: new Date(), lastUsed: new Date()
     };
     this.events = events;
@@ -131,6 +174,43 @@ export class SessionSource {
     await ReplaySession.findOneAndUpdate({ key }, { ...this.meta, chunks: [...this.chunks] }, { upsert: true });
     log.info(`openf1: ${this.meta.name} ready (${drivers.length} drivers, ${events.length} events, ${Math.round((to - from) / 60000)} min)`);
     return this.meta;
+  }
+
+  /**
+   * Sessions cached before team radio, marshal sectors and circuit geometry were
+   * recorded get them added in place (a handful of requests), without throwing
+   * away their stored car data.
+   */
+  async upgrade() {
+    const m = this.meta, key = m.key;
+    try {
+      const radio = await openf1('team_radio', { session_key: key }).catch(() => []);
+      const rc = await openf1('race_control', { session_key: key });
+      const extra = [
+        ...rc.map((r) => ({ t: ts(r.date), type: 'rc', data: rcData(r) })),
+        ...radio.filter((r) => r.recording_url).map((r) => ({ t: ts(r.date), type: 'radio', data: { n: r.driver_number, url: r.recording_url } }))
+      ].filter((e) => e.t != null);
+      // the fastest clean lap, from the stored lap events
+      const starts = new Map(this.events.filter((e) => e.type === 'lapstart').map((e) => [`${e.data.n}:${e.data.lap}`, e.t]));
+      const best = this.events.filter((e) => e.type === 'lap' && !e.data.pitOut && e.data.lap >= 2 && starts.has(`${e.data.n}:${e.data.lap}`))
+        .sort((a, b) => a.data.time - b.data.time)[0];
+      let geo = null;
+      if (best) {
+        const a = starts.get(`${best.data.n}:${best.data.lap}`);
+        const [row] = await openf1('laps', { session_key: key, driver_number: best.data.n, lap_number: best.data.lap }).catch(() => []);
+        geo = await circuitFromLap(key, best.data.n, a, a + best.data.time * 1000, row || { duration_sector_1: best.data.s?.[0], duration_sector_2: best.data.s?.[1] });
+      }
+      await ReplayEvent.deleteMany({ s: key, type: { $in: ['rc', 'radio'] } });
+      if (extra.length) await ReplayEvent.collection.insertMany(extra.map((e) => ({ s: key, t: new Date(e.t), type: e.type, data: e.data })), { ordered: false });
+      this.events = [...this.events.filter((e) => e.type !== 'rc' && e.type !== 'radio'), ...extra].sort((a, b) => a.t - b.t);
+      const set = { xv: EXTRAS, events: this.events.length, totalLaps: m.complete ? totalLapsOf(this.events, m.type) : null };
+      if (geo?.track?.length) Object.assign(set, { track: geo.track, info: geo.info });
+      Object.assign(this.meta, set);
+      await ReplaySession.updateOne({ key }, set);
+      log.info(`openf1: ${m.name} upgraded (${radio.length} radio clips, circuit geometry ${geo ? 'added' : 'unavailable'})`);
+    } catch (e) {
+      log.warn(`openf1: upgrade of ${m.name} failed, playing without the extras:`, e.message);
+    }
   }
 
   chunkIndex(t) { return Math.floor((t - +this.meta.from) / CHUNK_MS); }
@@ -208,7 +288,8 @@ export class SessionSource {
     const q = { session_key: key, 'date>': iso(since) };
     const out = [];
     for (const p of await openf1('position', q)) out.push({ t: ts(p.date), type: 'position', data: { n: p.driver_number, pos: p.position } });
-    for (const r of await openf1('race_control', q)) out.push({ t: ts(r.date), type: 'rc', data: { category: r.category, flag: r.flag, message: r.message, lap: r.lap_number, n: r.driver_number, scope: r.scope } });
+    for (const r of await openf1('race_control', q)) out.push({ t: ts(r.date), type: 'rc', data: rcData(r) });
+    for (const r of await openf1('team_radio', q).catch(() => [])) if (r.recording_url) out.push({ t: ts(r.date), type: 'radio', data: { n: r.driver_number, url: r.recording_url } });
     for (const l of await openf1('laps', { session_key: key, 'date_start>': iso(since - 180_000) })) {
       if (l.lap_duration && l.date_start) out.push({ t: ts(l.date_start) + l.lap_duration * 1000, type: 'lap', data: { n: l.driver_number, lap: l.lap_number, time: l.lap_duration, s: [l.duration_sector_1, l.duration_sector_2, l.duration_sector_3], pitOut: !!l.is_pit_out_lap } });
       if (l.date_start) out.push({ t: ts(l.date_start), type: 'lapstart', data: { n: l.driver_number, lap: l.lap_number } });

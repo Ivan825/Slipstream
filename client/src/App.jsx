@@ -20,7 +20,7 @@ import RealAnalysis from './pages/RealAnalysis.jsx';
 import RealStrategy from './pages/RealStrategy.jsx';
 import Debrief from './pages/Debrief.jsx';
 import { useRealChannel } from './lib/realChannel.js';
-import { useMock, useTeamWatch, rememberMock } from './lib/crew.js';
+import { useMock, useTeamWatch, useRadioWatch, rememberMock } from './lib/crew.js';
 import { useUI } from './store/stores.js';
 
 function Page({ children }) {
@@ -54,6 +54,7 @@ function Shell({ role, location }) {
   const realKey = source.kind === 'real' ? source.key : null;
   useRealChannel(realKey); // every page follows the chosen real session
   useTeamWatch(); // alerts for the crew's cars in real sessions
+  useRadioWatch(); // team radio plays as it comes in, with sound on
   const mockId = source.kind === 'real' && String(source.key).startsWith('m-') ? String(source.key).slice(2) : null;
   useEffect(() => {
     useMock.getState().load(mockId);

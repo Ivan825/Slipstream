@@ -6,6 +6,9 @@ import { useUI, useToasts } from '../store/stores.js';
 import { useRealAnalysis } from '../pages/RealTelemetry.jsx';
 import { sessionModel, plansFor } from './realStrategy.js';
 import { teamDrivers } from './teams.js';
+import { raceEngine } from './raceEngine.js';
+import { circuitOf } from './circuit.js';
+import { beep, speak, queueRadio } from './sound.js';
 
 /* ---------- mock sessions this browser has started or been sent ---------- */
 const MOCKS_KEY = 'slipstream.mocks';
@@ -74,7 +77,7 @@ export function useTeamWatch() {
   const team = useUI((s) => s.realTeam);
   const key = useReplay((s) => s.key);
   const data = useRealAnalysis(source.kind === 'real' ? key : null);
-  const prev = useRef({ t: 0, calls: new Map(), flag: null, rain: null, pitT: 0, key: null });
+  const prev = useRef({ t: 0, calls: new Map(), best: new Map(), battles: new Map(), flag: null, rain: null, pitT: 0, key: null });
   const push = useTeamFeed((s) => s.push);
   const toast = useToasts((s) => s.push);
 
@@ -88,7 +91,7 @@ export function useTeamWatch() {
       const ours = teamDrivers(meta, useUI.getState().realTeam);
       // seeking, restarting or a new session: take stock silently
       const quiet = p.key !== key || t < p.t - 1000 || t - p.t > 120_000 * Math.max(1, state.speed || 1);
-      if (p.key !== key) useTeamFeed.getState().clear();
+      if (p.key !== key) { useTeamFeed.getState().clear(); p.best.clear(); p.battles.clear(); p.calls.clear(); }
       const model = sessionModel(data, t, meta.live);
       const s = plansFor({ meta, state, rows, data, model });
       const say = (a) => {
@@ -96,13 +99,46 @@ export function useTeamWatch() {
         const alert = { t, at: Date.now(), ...a };
         push(alert);
         if (a.level !== 'info') toast({ kind: a.level === 'red' ? '' : 'yel', title: a.title, text: a.text, ms: 7000 });
+        // the engineer on the radio: a beep, then the call spoken (only at speeds a person could follow)
+        if (useUI.getState().sound && (state.speed || 1) <= 4) {
+          beep(a.level === 'red' ? 'alert' : 'info');
+          if (a.voice && a.level !== 'info') speak(a.voice);
+        }
       };
+      const first = (d) => (d.last || d.name || d.code || '').split(' ').pop();
       for (const d of ours) {
         const plan = s.plans.get(d.n);
         if (!plan) continue;
         const was = p.calls.get(d.n);
-        if (plan.kind === 'box' && was?.call !== plan.call) say({ n: d.n, code: d.code, color: d.color, level: plan.tone === 'red' ? 'red' : 'amber', title: `${d.code}: ${plan.call}`, text: `Rejoin P${plan.rejoin?.pos ?? '?'} · fit ${plan.fit} · tyres ${plan.age}/${plan.L} laps` });
+        if (plan.kind === 'box' && was?.call !== plan.call) say({ n: d.n, code: d.code, color: d.color, level: plan.tone === 'red' ? 'red' : 'amber', title: `${d.code}: ${plan.call}`, text: `Rejoin P${plan.rejoin?.pos ?? '?'} · fit ${plan.fit} · tyres ${plan.age}/${plan.L} laps`, voice: plan.tone === 'red' ? `${first(d)}, box, box. ${plan.call.split(':')[0]}.` : `${first(d)}: ${plan.call}` });
         p.calls.set(d.n, plan);
+      }
+      // the forward look: strategy switches and battles coming up
+      const eng = raceEngine({ meta, state, rows, data, team: useUI.getState().realTeam, circuit: circuitOf(meta) });
+      for (const d of ours) {
+        const opts = eng?.options.get(d.n) || [];
+        const best = opts[0];
+        const sig = (o) => o && o.stops.map((x) => `${x.c}${(rows.find((r) => r.n === d.n)?.lap || 0) + x.lap}`).join('|');
+        const was = p.best.get(d.n);
+        if (best && was && sig(best) !== was.sig) {
+          const old = opts.find((o) => sig(o) === was.sig);
+          const sameShape = was.stops === best.stops.length && was.c === best.stops[0]?.c;
+          const gain = old ? old.total - best.total : null;
+          if (!sameShape && (gain == null || gain > 1)) say({ n: d.n, code: d.code, color: d.color, level: 'amber', title: `${d.code} strategy switch: ${best.title}`, text: `${gain != null ? `Now ${gain.toFixed(1)} s better than ${old.title.toLowerCase()}` : 'The previous plan is no longer viable'} · projected P${best.pos}`, voice: `${first(d)}, we're switching to plan ${best.letter}. ${best.title}.` });
+        }
+        if (best) p.best.set(d.n, { sig: sig(best), stops: best.stops.length, c: best.stops[0]?.c });
+        for (const b of eng?.battles.get(d.n) || []) {
+          const rival = s.drivers.get(b.rival);
+          const k = `${d.n}:${b.rival}`;
+          const soon = b.kind === 'pass-us' && b.swapLap != null && b.swapLap <= 3;
+          const range = b.behind && b.inRange;
+          const state2 = soon ? 'soon' : range ? 'range' : 'none';
+          const last = p.battles.get(k);
+          if (state2 !== 'none' && state2 !== last && rival) {
+            say({ n: d.n, code: d.code, color: d.color, level: soon ? 'red' : 'amber', title: soon ? `${rival.code} projected to pass ${d.code} in ${b.swapLap} lap${b.swapLap === 1 ? '' : 's'}` : `${rival.code} within ${b.gapNow.toFixed(1)} s of ${d.code}`, text: `${Math.round(b.prob * 100)}% on-track chance · most likely ${b.zone ? b.zone.label : 'on the main straight'} · ${b.paceNow > 0 ? `${b.paceNow.toFixed(2)} s/lap quicker` : 'similar pace'}`, voice: soon ? `${first(d)}, ${rival.last || rival.code} is coming, ${b.paceNow > 0 ? `${b.paceNow.toFixed(1)} a lap quicker` : 'defend'}.` : null });
+          }
+          p.battles.set(k, state2);
+        }
       }
       // rivals stopping around our cars: the undercut is on
       const pits = feed.filter((e) => e.type === 'pit' && e.t > p.pitT && e.t <= t);
@@ -125,4 +161,32 @@ export function useTeamWatch() {
     const id = setInterval(tick, 2000);
     return () => clearInterval(id);
   }, [source.kind, key, data, team, push, toast]);
+}
+
+/**
+ * Team radio as it is broadcast in the session: with sound on, our cars' clips
+ * (or the selected driver's when no team is picked, or every car) play as they
+ * come in, one at a time. Skipped at high replay speeds.
+ */
+export function useRadioWatch() {
+  const radio = useReplay((s) => s.radio);
+  const seen = useRef(new Set());
+  const toast = useToasts((s) => s.push);
+  useEffect(() => {
+    const fresh = radio.filter((r) => r.fresh && !seen.current.has(r.url + r.t));
+    for (const r of radio) seen.current.add(r.url + r.t);
+    if (!fresh.length) return;
+    const { meta, state, selected } = useReplay.getState();
+    const ui = useUI.getState();
+    if (!meta || ui.radioAuto === 'off') return;
+    const ours = teamDrivers(meta, ui.realTeam).map((d) => d.n);
+    const want = ui.radioAuto === 'all' ? null : new Set(ours.length ? ours : [selected]);
+    const drivers = new Map(meta.drivers.map((d) => [d.n, d]));
+    for (const r of fresh.slice().reverse()) {
+      if (want && !want.has(r.n)) continue;
+      const d = drivers.get(r.n);
+      toast({ kind: 'cyan', title: `Team radio · ${d?.code || r.n}`, text: ui.sound ? (state.speed > 2 ? 'Slow the replay to 2× or less to hear it live' : 'Playing') : 'Switch sound on to hear team radio', ms: 3500 });
+      if (ui.sound && (state.speed || 1) <= 2 && state.playing !== false) queueRadio({ ...r, code: d?.code, color: d?.color });
+    }
+  }, [radio, toast]);
 }

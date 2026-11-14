@@ -144,7 +144,7 @@ export class ReplayChannel {
   /* ---------------- clock & state ---------------- */
 
   resetState() {
-    this.st = { pos: new Map(), gap: new Map(), int: new Map(), lap: new Map(), last: new Map(), best: new Map(), pits: new Map(), sectors: new Map(), weather: null, rc: [], flag: 'GREEN', bestLap: null };
+    this.st = { pos: new Map(), gap: new Map(), int: new Map(), lap: new Map(), last: new Map(), best: new Map(), pits: new Map(), sectors: new Map(), weather: null, rc: [], radio: [], yellow: new Map(), flag: 'GREEN', bestLap: null };
     this.ei = 0;
   }
 
@@ -162,9 +162,19 @@ export class ReplayChannel {
         break;
       case 'pit': s.pits.set(d.n, (s.pits.get(d.n) || 0) + 1); collect?.push(e); break;
       case 'weather': s.weather = d; collect?.push(e); break;
+      case 'radio':
+        s.radio.push({ t: e.t, n: d.n, url: d.url });
+        if (s.radio.length > 40) s.radio.shift();
+        collect?.push(e);
+        break;
       case 'rc':
         s.rc.push({ t: e.t, ...d });
         if (s.rc.length > 40) s.rc.shift();
+        // local yellows by marshal sector; a track-wide green or a new session phase clears them
+        if (d.scope === 'Sector' && d.sector) {
+          if (/YELLOW/.test(d.flag || '')) s.yellow.set(d.sector, d.flag);
+          else if (/CLEAR|GREEN/.test(d.flag || '')) s.yellow.delete(d.sector);
+        } else if (/CLEAR|GREEN|CHEQUERED|RED/.test(d.flag || '') && (d.scope === 'Track' || !d.scope)) s.yellow.clear();
         if (d.category === 'SafetyCar') s.flag = /VIRTUAL/i.test(d.message) && /DEPLOYED/i.test(d.message) ? 'VSC' : /DEPLOYED/i.test(d.message) ? 'SC' : /ENDING|IN THIS LAP/i.test(d.message) ? s.flag : 'GREEN';
         else if (d.flag && (d.scope === 'Track' || !d.scope)) s.flag = d.flag === 'CLEAR' ? 'GREEN' : d.flag;
         collect?.push(e);
@@ -238,15 +248,16 @@ export class ReplayChannel {
   state() {
     return {
       loaded: true, key: this.meta.key, live: this.live, feed: this.live ? 'live' : 'historical', t: this.t, from: this.from, to: this.to,
-      playing: this.playing, speed: this.speed, buffering: this.buffering, flag: this.st.flag, weather: this.st.weather, bestLap: this.st.bestLap
+      playing: this.playing, speed: this.speed, buffering: this.buffering, flag: this.st.flag, weather: this.st.weather, bestLap: this.st.bestLap,
+      yellows: [...this.st.yellow].map(([sector, flag]) => ({ sector, flag }))
     };
   }
 
   snapshot() {
-    const { drivers, track, name, circuit, country, year, type, key, complete } = this.meta;
+    const { drivers, track, info, totalLaps, name, circuit, country, year, type, key, complete } = this.meta;
     return {
-      meta: { key, ch: this.ch(), name, circuit, country, year, type, drivers, track, complete, live: this.live, mock: this.mock ? { id: this.mock.id, team: this.mock.team, crew: this.mock.crew || null } : null },
-      state: this.state(), rows: this.standings(), rc: this.st.rc.slice(-20).reverse(), frame: { ...this.frame(), k: this.ch() }
+      meta: { key, ch: this.ch(), name, circuit, country, year, type, drivers, track, info: info || null, totalLaps: totalLaps ?? null, complete, live: this.live, mock: this.mock ? { id: this.mock.id, team: this.mock.team, crew: this.mock.crew || null } : null },
+      state: this.state(), rows: this.standings(), rc: this.st.rc.slice(-20).reverse(), radio: this.st.radio.slice(-30).reverse(), frame: { ...this.frame(), k: this.ch() }
     };
   }
 
