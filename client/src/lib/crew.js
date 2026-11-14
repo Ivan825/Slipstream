@@ -170,11 +170,16 @@ export function useTeamWatch() {
  */
 export function useRadioWatch() {
   const radio = useReplay((s) => s.radio);
-  const seen = useRef(new Set());
+  const seen = useRef(new Map()); // clip -> session time it was broadcast
+  const lastT = useRef(0);
   const toast = useToasts((s) => s.push);
   useEffect(() => {
+    // seeking back: clips after the new clock time can be heard again
+    const now = useReplay.getState().state.t || 0;
+    if (now < lastT.current - 1000) for (const [k, t] of seen.current) if (t > now) seen.current.delete(k);
+    lastT.current = now;
     const fresh = radio.filter((r) => r.fresh && !seen.current.has(r.url + r.t));
-    for (const r of radio) seen.current.add(r.url + r.t);
+    for (const r of radio) seen.current.set(r.url + r.t, r.t);
     if (!fresh.length) return;
     const { meta, state, selected } = useReplay.getState();
     const ui = useUI.getState();
