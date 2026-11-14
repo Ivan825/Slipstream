@@ -10,6 +10,7 @@ import { sessionModel, plansFor, SC_FACTOR, FUEL_S_PER_LAP } from '../lib/realSt
 import { teamDrivers, sameTeam } from '../lib/teams.js';
 import { useMock, useTeamFeed } from '../lib/crew.js';
 import { TeamPicker } from '../components/TeamPicker.jsx';
+import { EngineCards } from '../components/RaceDeck.jsx';
 
 const lt = (s) => (s == null ? '—' : formatLapTime(s));
 const sec = (x, d = 1) => (x == null || !Number.isFinite(x) ? '—' : `${x.toFixed(d)} s`);
@@ -61,7 +62,7 @@ export default function RealStrategy() {
         <div className="card">
           <div className="card-h"><b>Race</b><span className="chip" style={{ color: flag === 'GREEN' ? undefined : '#ffb020' }}>{flag === 'GREEN' ? 'green flag' : flag}</span></div>
           <div className="card-b row" style={{ gap: 22 }}>
-            <div><div className="lbl">Lap</div><b className="big mono">{leaderLap}{model.totalLaps ? ` / ${model.totalLaps}` : ''}</b></div>
+            <div><div className="lbl">Lap</div><b className="big mono">{leaderLap}{(meta.totalLaps || model.totalLaps) ? ` / ${meta.totalLaps || model.totalLaps}` : ''}</b></div>
             {remaining != null && <div><div className="lbl">To go</div><b className="mono">{remaining}</b></div>}
             <div><div className="lbl">Rain</div><b className="mono">{rain ? 'YES' : 'no'}</b></div>
             {state.weather?.track != null && <div><div className="lbl">Track</div><b className="mono">{state.weather.track}°</b></div>}
@@ -84,6 +85,8 @@ export default function RealStrategy() {
           {focus.map((n) => <Strategist key={n} n={n} s={s} model={model} field={field} canLog={inMock} pick={!ours.length} onPick={setRealDriver} />)}
         </div>
       )}
+
+      {isRace && <EngineCards />}
 
       {isRace && (
         <div className={inMock ? 'two' : ''} style={{ display: inMock ? undefined : 'block' }}>

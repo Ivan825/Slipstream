@@ -404,7 +404,7 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 .gapchart { height: 150px; margin-top: 10px; }
 .gapchart canvas { width: 100%; height: 100%; display: block; }
 .proj { font-size: 10px; font-weight: 900; font-family: "JetBrains Mono", monospace; text-align: right; }
-.tyre-cars { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.tyre-cars { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 440px)); gap: 12px; }
 .tyre-car { background: var(--bg-2); border-radius: 6px; padding: 10px 12px; border-left: 3px solid var(--tc); }
 .tc-body { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 60px; padding: 4px 6px; }
 .tc-chassis { position: absolute; left: 50%; top: 10%; bottom: 10%; width: 34px; margin-left: -17px; border-radius: 14px 14px 8px 8px; background: linear-gradient(#2c2c38, #1d1d26); border: 1px solid #3a3a48; pointer-events: none; }

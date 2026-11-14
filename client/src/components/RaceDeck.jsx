@@ -58,6 +58,19 @@ export default function RaceDeck() {
   );
 }
 
+/** the deck's panels as standalone cards (the Strategy page) */
+export function EngineCards() {
+  const ctx = useEngine();
+  if (!ctx.eng || !ctx.eng.s.isRace) return null;
+  return (
+    <>
+      <div className="card"><div className="card-h"><b>Strategy options</b><span className="chip">switch plans as the race changes · alerts on a switch</span></div><div className="deck-b"><Strategies {...ctx} /></div></div>
+      <div className="card"><div className="card-h"><b>Driver priority &amp; team orders</b><span className="chip">{ctx.team || 'no team picked'}</span></div><div className="deck-b"><Priority {...ctx} /></div></div>
+      <div className="card"><div className="card-h"><b>Battle forecast &amp; projections</b><span className="chip">who, when and where</span></div><div className="deck-b"><Forecast {...ctx} /></div></div>
+    </>
+  );
+}
+
 /* ---------------- battle forecast ---------------- */
 function battleText(b, me, rv, total0) {
   const lapOf = (k) => (k == null ? null : (b.ourLap || 0) + k);
@@ -191,7 +204,7 @@ function Strategies({ eng, drivers }) {
                   {o.isBase && <span className="chip">strategist's plan</span>}
                   <span className="chip">P{o.pos}</span>
                   <span className={`chip risk-${o.risk}`}>{o.risk} risk</span>
-                  <span className="mono" style={{ minWidth: 54, textAlign: 'right', color: o.delta < 0.05 ? 'var(--grn)' : undefined }}>{o.delta < 0.05 ? 'best' : `+${o.delta.toFixed(1)} s`}</span>
+                  <span className="mono" style={{ minWidth: 54, textAlign: 'right', color: o.delta < 0.05 ? 'var(--grn)' : undefined }} title="projected race time against the fastest option">{o.delta < 0.05 ? (o.letter === 'A' ? 'best' : 'fastest') : `+${o.delta.toFixed(1)} s`}</span>
                 </div>
                 <PlanBar from={from} total={total} cur={me?.pr.c} stops={o.stops} />
                 {o.notes.length > 0 && <div className="mu" style={{ fontSize: 11.5 }}>{o.notes.join(' · ')}</div>}
@@ -341,14 +354,14 @@ function DegChart({ data, drivers, focus, rows, t }) {
         const k = den ? num / den : 0;
         const aa = Math.min(...s.laps.map((l) => l.age)), ab = Math.max(...s.laps.map((l) => l.age));
         ctx.strokeStyle = col; ctx.lineWidth = s.mine ? 2 : 1.2; ctx.beginPath(); ctx.moveTo(X(aa), Y(my + k * (aa - mx))); ctx.lineTo(X(ab), Y(my + k * (ab - mx))); ctx.stroke();
-        ctx.font = '700 10px "Titillium Web"'; ctx.fillText(`${drivers.get(s.n)?.code} ${k >= 0 ? '+' : ''}${k.toFixed(3)}`, X(ab) + 4 > w - 70 ? w - 70 : X(ab) + 4, Y(my + k * (ab - mx)));
+        ctx.font = '700 10px "Titillium Web"'; ctx.fillText(`${drivers.get(s.n)?.code} ${k >= 0 ? '+' : ''}${k.toFixed(3)} raw`, X(ab) + 4 > w - 70 ? w - 70 : X(ab) + 4, Y(my + k * (ab - mx)));
       }
       ctx.globalAlpha = 1;
     }
   }, [series]);
   return (
     <div className="card">
-      <div className="card-h"><b>Degradation on the current set</b><span className="chip">lap time vs tyre age · slope s/lap</span></div>
+      <div className="card-h"><b>Degradation on the current set</b><span className="chip">lap time vs tyre age · raw slope s/lap (fuel burn included)</span></div>
       <div style={{ height: 230, padding: '6px 10px' }}><canvas ref={ref} style={{ width: '100%', height: '100%', display: 'block' }} aria-label="Lap time against tyre age for our cars and the cars around them" /></div>
     </div>
   );
