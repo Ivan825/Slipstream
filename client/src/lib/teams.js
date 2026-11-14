@@ -1,36 +1,7 @@
-import { REAL_TEAMS } from '@slipstream/shared';
+import { REAL_TEAMS, sameTeam } from '@slipstream/shared';
 
-/**
- * Real teams in OpenF1 data. Team names change over the years (sponsors, rebrands),
- * so a crew's team is matched to a session by family, not exact string.
- */
-const FAMILIES = [
-  ['mclaren'],
-  ['ferrari'],
-  ['red bull racing', 'red bull'],
-  ['mercedes'],
-  ['aston martin'],
-  ['alpine'],
-  ['williams'],
-  ['racing bulls', 'rb', 'visa cash app rb', 'alphatauri', 'scuderia alphatauri'],
-  ['audi', 'kick sauber', 'sauber', 'stake f1 team kick sauber', 'alfa romeo'],
-  ['haas f1 team', 'haas'],
-  ['cadillac']
-];
+export { sameTeam };
 
-const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-const family = (name) => {
-  const n = norm(name);
-  return FAMILIES.findIndex((f) => f.some((a) => n === a || n.startsWith(a + ' ') || n.includes(a) && a.length > 3));
-};
-
-/** does a session's team name belong to the crew's team? */
-export function sameTeam(a, b) {
-  if (!a || !b) return false;
-  if (norm(a) === norm(b)) return true;
-  const fa = family(a);
-  return fa >= 0 && fa === family(b);
-}
 
 /** the session's teams, each with its drivers and colour, in a stable order */
 export function teamsOf(meta) {

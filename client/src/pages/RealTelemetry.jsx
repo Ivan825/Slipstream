@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { formatLapTime } from '@slipstream/shared';
 import { api } from '../lib/api.js';
 import { useCanvas, useAnimationFrame, useTicker } from '../lib/hooks.js';
-import { useReplay, replayCars, replayTrace, replayClock } from '../store/replay.js';
+import { useReplay, replayCars, replayTrace, replayClock, onReplayEvents } from '../store/replay.js';
 import { useUI } from '../store/stores.js';
 import { Tyre } from '../components/TimingTower.jsx';
 import { RealTrack, gapText } from './Replay.jsx';
@@ -14,26 +14,68 @@ const s3 = (x) => (x == null ? '—' : x.toFixed(3));
 /**
  * Laps, stints and stops of a real session. One fetch per channel shared by every
  * page and the team watcher; a live session is refreshed every 30 s.
+ *
+ * A takeover's timing is made as it runs: the history comes from MongoDB once,
+ * then the laps, stops, tyre changes, overtakes, race control and weather that
+ * stream in are merged into it (deduplicated by car and lap, or by time), at most
+ * every 2 s so the engines aren't rerun on every message. A full refetch every
+ * 20 s keeps it consistent with the server.
  */
 const analysisCache = new Map(); // channel -> { data, at, p, subs:Set }
+
+function mergeInto(d, evs) {
+  const laps = new Map(d.laps.map((l) => [`${l.n}:${l.lap}`, l]));
+  const pits = new Set(d.pits.map((p) => `${p.n}:${p.lap}`));
+  const seen = (arr, k) => new Set(arr.map(k));
+  const ot = seen(d.overtakes || [], (o) => `${o.t}:${o.n}:${o.o}`), rc = seen(d.rc || [], (r) => `${r.t}:${r.message}`), wx = seen(d.weather || [], (w) => w.t);
+  const out = { ...d, laps: d.laps.slice(), pits: d.pits.slice(), stints: d.stints.map((x) => ({ ...x })), overtakes: (d.overtakes || []).slice(), rc: (d.rc || []).slice(), weather: (d.weather || []).slice() };
+  for (const e of evs) {
+    if (e.type === 'lap' && !laps.has(`${e.n}:${e.lap}`)) { const l = { n: e.n, lap: e.lap, t: e.t, time: e.time, s: e.s, st: e.st ?? null, pitOut: !!e.pitOut, pos: e.pos ?? null }; laps.set(`${e.n}:${e.lap}`, l); out.laps.push(l); }
+    else if (e.type === 'pit' && !pits.has(`${e.n}:${e.lap}`)) { pits.add(`${e.n}:${e.lap}`); out.pits.push({ n: e.n, lap: e.lap, duration: e.duration, t: e.t }); }
+    else if (e.type === 'stint') {
+      const i = out.stints.findIndex((x) => x.n === e.n && x.from === e.from);
+      const st = { n: e.n, from: e.from, to: e.to ?? null, compound: e.compound, age: e.age ?? 0 };
+      if (i >= 0) out.stints[i] = st;
+      else {
+        for (const x of out.stints) if (x.n === e.n && (x.to == null || x.to >= e.from) && x.from < e.from) x.to = e.from - 1;
+        out.stints.push(st);
+      }
+    } else if (e.type === 'overtake' && !ot.has(`${e.t}:${e.n}:${e.o}`)) out.overtakes.push({ t: e.t, n: e.n, o: e.o, pos: e.pos });
+    else if (e.type === 'rc' && !rc.has(`${e.t}:${e.message}`)) { const { type, fastest, ...r } = e; out.rc.push(r); }
+    else if (e.type === 'weather' && !wx.has(e.t)) { const { type, fastest, ...w } = e; out.weather.push(w); }
+  }
+  return out;
+}
+
 export function useRealAnalysis(key) {
   const [data, setData] = useState(() => (key && analysisCache.get(String(key))?.data) || null);
   useEffect(() => {
     if (!key) { setData(null); return; }
     const k = String(key);
     let e = analysisCache.get(k);
-    if (!e) { e = { data: null, at: 0, p: null, subs: new Set() }; analysisCache.set(k, e); }
+    if (!e) { e = { data: null, at: 0, p: null, subs: new Set(), queue: [] }; analysisCache.set(k, e); }
     const sub = (d) => setData(d);
     e.subs.add(sub);
+    const fork = () => !!useReplay.getState().meta?.fork;
     const load = () => {
-      if (e.p || Date.now() - e.at < 25_000) return;
-      e.p = api(`/replay/${k}/analysis`).then((d) => { e.data = d; e.at = Date.now(); e.subs.forEach((f) => f(d)); }).catch(() => {}).finally(() => { e.p = null; });
+      if (e.p || Date.now() - e.at < (fork() ? 15_000 : 25_000)) return;
+      e.p = api(`/replay/${k}/analysis`).then((d) => { e.data = e.queue?.length ? mergeInto(d, e.queue) : d; e.queue = []; e.at = Date.now(); e.subs.forEach((f) => f(e.data)); }).catch(() => {}).finally(() => { e.p = null; });
     };
     if (e.data) setData(e.data);
     load();
-    // a finished session's timing never changes; only live sessions need refreshing
-    const id = setInterval(() => { if (useReplay.getState().meta?.live) load(); }, 30_000);
-    return () => { e.subs.delete(sub); clearInterval(id); };
+    // a finished session's timing never changes; only live sessions and takeovers need refreshing
+    const id = setInterval(() => { const m = useReplay.getState().meta; if (m?.live || m?.fork) load(); }, 20_000);
+    // a takeover's events, merged in as they arrive
+    const pending = [];
+    const off = onReplayEvents((evs, ch) => { if (ch === k && fork()) pending.push(...evs); });
+    const flush = setInterval(() => {
+      if (!pending.length || !e.data) return;
+      const evs = pending.splice(0);
+      if (e.p) { e.queue = [...(e.queue || []), ...evs]; return; }
+      e.data = mergeInto(e.data, evs);
+      e.subs.forEach((f) => f(e.data));
+    }, 2000);
+    return () => { e.subs.delete(sub); clearInterval(id); clearInterval(flush); off(); };
   }, [key]);
   return data;
 }

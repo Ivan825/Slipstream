@@ -38,14 +38,14 @@ function RealSessionBar() {
   const best = state.bestLap ? meta.drivers.find((d) => d.n === state.bestLap.n) : null;
   return (
     <div className="sessbar">
-      <div className="sb-gp"><span className="tag" style={{ background: state.live ? 'var(--red)' : meta.mock ? 'var(--cyan)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'LIVE' : meta.mock ? 'MOCK' : 'REPLAY'}</span><div><small>{meta.circuit} · {state.live ? 'OpenF1 live feed' : meta.mock ? 'mock session · your own clock' : 'OpenF1 historical feed · shared clock'}</small><b>{meta.year} {meta.country} · {meta.type}</b></div></div>
+      <div className="sb-gp"><span className="tag" style={{ background: meta.fork ? 'var(--org)' : state.live ? 'var(--red)' : meta.mock ? 'var(--cyan)' : '#fff', color: state.live || meta.fork ? '#fff' : 'var(--bg)' }}>{meta.fork ? 'TAKEOVER' : state.live ? 'LIVE' : meta.mock ? 'MOCK' : 'REPLAY'}</span><div><small>{meta.circuit} · {meta.fork ? `real to lap ${meta.fork.lap0}, then simulated · your calls change it` : state.live ? 'OpenF1 live feed' : meta.mock ? 'mock session · your own clock' : 'OpenF1 historical feed · shared clock'}</small><b>{meta.year} {meta.country} · {meta.type}</b></div></div>
       {/Race|Sprint$/.test(meta.type)
         ? <div className="sb-lap"><small>Lap</small><b>{leaderLap} <span>/ {meta.totalLaps ?? (meta.info?.length ? `~${Math.ceil(305_000 / meta.info.length)}` : '—')}</span></b></div>
         : <div className="sb-lap"><small>Session clock</small><b className="clock">{clockText(state.t - state.from)}</b></div>}
       <span className={`track-status ts-${flagCls}`}>{flagText}</span>
       {w && <div className="sb-wx"><span><small>Air</small><b>{w.air}°C</b></span><span><small>Track</small><b>{w.track}°C</b></span><span><small>Rain</small><b style={{ color: w.rain ? 'var(--cyan)' : undefined }}>{w.rain ? 'YES' : 'NO'}</b></span></div>}
       {best && <div><small>Fastest lap</small><b className="mono" style={{ color: 'var(--pur)', fontSize: 15 }}>{best.code} {formatLapTime(state.bestLap.time)}</b></div>}
-      <div><small>{state.buffering ? 'Buffering' : state.live ? 'Following live' : state.playing ? `Playing ${state.speed}×` : 'Paused'}</small><b className="mono" style={{ fontSize: 15 }}>{new Date(state.t).toISOString().slice(11, 19)} UTC</b></div>
+      <div><small>{state.fork?.ended ? 'Finished' : state.buffering ? 'Buffering' : state.live ? 'Following live' : state.playing ? `Playing ${state.speed}×` : 'Paused'}</small><b className="mono" style={{ fontSize: 15 }}>{new Date(state.t).toISOString().slice(11, 19)} UTC</b></div>
       <div className="sb-eps"><span><small>Events in / s</small><br /><b>{snap?.rates?.received ?? 0}</b></span></div>
     </div>
   );

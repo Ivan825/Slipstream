@@ -15,6 +15,7 @@ import { TeamAlerts } from './RealStrategy.jsx';
 import { formatLapTime } from '@slipstream/shared';
 import RealTrack from '../components/RealTrack.jsx';
 import RaceDeck from '../components/RaceDeck.jsx';
+import { TakeoverDeck, TakeoverButton } from '../components/TakeoverPanels.jsx';
 import { raceEngine } from '../lib/raceEngine.js';
 import { circuitOf } from '../lib/circuit.js';
 
@@ -170,7 +171,9 @@ export function Channel({ channelKey }) {
   const elapsed = state.t - state.from, total = state.to - state.from;
   const leaderLap = rows[0]?.lap || 0;
   const [flagText, flagCls] = FLAG[state.flag] || [state.flag || 'TRACK CLEAR', 'GREEN'];
+  const fork = meta.fork;
   const canControl = !state.live;
+  const canSeek = canControl && !fork;
   const mock = meta.mock;
   const ctl = async (body) => {
     try { await api(`/replay/${ch}/control`, { method: 'POST', body }); } catch (e) { toast({ kind: '', title: 'Playback', text: e.message }); }
@@ -200,7 +203,7 @@ export function Channel({ channelKey }) {
       <div className="card carbon" style={{ borderTopRightRadius: 14 }}>
         <div className="row" style={{ padding: '12px 16px', gap: 18 }}>
           <Link to={mock ? '/' : '/real'} className="chip">← {mock ? 'Launcher' : 'Archive'}</Link>
-          <span className="tag" style={{ background: state.live ? 'var(--red)' : mock ? 'var(--cyan)' : '#fff', color: state.live ? '#fff' : 'var(--bg)' }}>{state.live ? 'Live feed' : mock ? 'Mock session' : 'Replay'} · OpenF1</span>
+          <span className="tag" style={{ background: fork ? 'var(--org)' : state.live ? 'var(--red)' : mock ? 'var(--cyan)' : '#fff', color: state.live || fork ? '#fff' : 'var(--bg)' }}>{fork ? `Takeover · real to lap ${fork.lap0}, simulated since` : `${state.live ? 'Live feed' : mock ? 'Mock session' : 'Replay'} · OpenF1`}</span>
           <div><div className="lbl">{meta.circuit} · {meta.type}</div><b style={{ fontSize: 22, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' }}>{meta.year} {meta.country}</b></div>
           <div className="kv"><small>{state.live ? 'Session time' : 'Clock'}</small><b className="mono">{clock(elapsed)} <span className="mu" style={{ fontSize: 13 }}>/ {clock(total)}</span></b></div>
           {isRace && <div className="kv"><small>Lap</small><b>{leaderLap}<span className="mu" style={{ fontSize: 14 }}> / {totalLaps ?? '—'}{eng?.total.est ? '*' : ''}</span></b></div>}
@@ -219,8 +222,8 @@ export function Channel({ channelKey }) {
               <>
                 <button className="btn sm" onClick={() => ctl({ action: state.playing ? 'pause' : 'play' })}>{state.playing ? 'Pause' : 'Play'}</button>
                 <div className="seg">{[1, 2, 4, 8, 16].map((s) => <button key={s} className={state.speed === s ? 'on' : ''} onClick={() => ctl({ action: 'speed', speed: s })}>{s}×</button>)}</div>
-                <button className="btn sm ghost" onClick={() => ctl({ action: 'restart' })}>{mock ? 'Back to start' : 'Restart'}</button>
-                {/Race|Sprint$/.test(meta.type) && (
+                {!fork && <button className="btn sm ghost" onClick={() => ctl({ action: 'restart' })}>{mock ? 'Back to start' : 'Restart'}</button>}
+                {/Race|Sprint$/.test(meta.type) && !fork && (
                   <form className="row" style={{ gap: 4 }} onSubmit={(e) => { e.preventDefault(); jump(Number(lapTo)); }}>
                     <input className="input" aria-label="Jump to lap" placeholder="lap" inputMode="numeric" value={lapTo} onChange={(e) => setLapTo(e.target.value.replace(/\D/g, ''))} style={{ width: 56, height: 30 }} />
                     <button className="btn sm ghost" disabled={!analysis || !lapTo}>Jump</button>
@@ -228,16 +231,20 @@ export function Channel({ channelKey }) {
                 )}
               </>
             )}
-            <input aria-label="Session position" type="range" min="0" max={total} step="1000" value={Math.min(total, elapsed)} disabled={!canControl} style={{ flex: 1, minWidth: 160 }}
-              onChange={(e) => canControl && ctl({ action: 'seek', t: Number(e.target.value) })} />
-            <span className="chip">{state.live ? 'following real time' : state.playing ? `playing ${state.speed}×` : 'paused'} · {mock ? "your crew's own clock" : 'shared clock for everyone in this session'}</span>
+            {fork
+              ? <span className="mu" style={{ flex: 1, minWidth: 160, fontSize: 12.5 }}>{state.fork?.ended ? 'The race is over: the debrief sets your result against what really happened.' : 'From the fork on, the server runs the race on a model calibrated on this session, and your calls below change what happens. It only runs forward.'}</span>
+              : <input aria-label="Session position" type="range" min="0" max={total} step="1000" value={Math.min(total, elapsed)} disabled={!canSeek} style={{ flex: 1, minWidth: 160 }}
+                onChange={(e) => canSeek && ctl({ action: 'seek', t: Number(e.target.value) })} />}
+            <span className="chip">{state.live ? 'following real time' : state.playing ? `playing ${state.speed}×` : 'paused'} · {fork ? 'simulated' : mock ? "your crew's own clock" : 'shared clock for everyone in this session'}</span>
           </div>
           <div className="row" style={{ gap: 8, marginTop: 10 }}>
             <TeamPicker meta={meta} />
             {mock && <button className="btn sm" onClick={share}>Share with crew</button>}
-            {mock && <Link to="/strategy" className="btn sm red">Strategy and calls</Link>}
+            {mock && <Link to="/strategy" className={`btn sm ${fork ? 'ghost' : 'red'}`}>Strategy and calls</Link>}
             {mock && <Link to="/debrief" className="btn sm ghost">Debrief</Link>}
-            {!mock && !state.live && <span className="mu" style={{ fontSize: 12 }}>Want your own clock and a call log? Start a mock session of this race from the launcher.</span>}
+            {isRace && !fork && <TakeoverButton />}
+            {isRace && !fork && <span className="mu" style={{ fontSize: 12 }}>Fork the race at this moment and run it yourself: your calls change the result.</span>}
+            {!mock && !state.live && !isRace && <span className="mu" style={{ fontSize: 12 }}>Want your own clock and a call log? Start a mock session of this race from the launcher.</span>}
           </div>
         </div>
       </div>
@@ -261,7 +268,7 @@ export function Channel({ channelKey }) {
               );
             })}
           </div>
-          <div className="tw-foot"><span>positions, intervals and laps from OpenF1{eng && isRace ? ' · last column: projected finish' : ''}</span><span className="mono">room · replay</span></div>
+          <div className="tw-foot"><span>{fork ? 'real timing to the fork, simulated since' : 'positions, intervals and laps from OpenF1'}{eng && isRace ? ' · last column: projected finish' : ''}</span><span className="mono">room · replay</span></div>
         </div>
 
         <div className="card mapcard"><RealTrack meta={meta} drivers={drivers} selected={sel?.n} onSelect={select} rows={rows} yellows={yellows} ghost={ghost} lap={isRace ? leaderLap : null} total={totalLaps} /></div>
@@ -293,6 +300,7 @@ export function Channel({ channelKey }) {
           </div>
         </div>
       </div>
+      {fork && <TakeoverDeck selected={sel?.n} />}
       <RaceDeck />
       <p className="mu" style={{ fontSize: 12, margin: 0 }}>
         Real timing and telemetry from <a href="https://openf1.org" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>OpenF1</a>, an unofficial open API, used here for non-commercial demonstration. Not associated with Formula 1 companies. Car data is sampled at about 3.7 Hz and fed through the same real-time path a live feed uses, on one shared clock for every viewer in the session's <span className="mono">replay:{meta.key}</span> room.

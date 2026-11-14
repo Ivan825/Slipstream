@@ -3,6 +3,8 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { ReplaySession, Mock } from '../models/index.js';
+import { ForkChannel } from '../fork/channel.js';
+import { MODES } from '../fork/sim.js';
 import { catalog, liveAvailable } from '../openf1/client.js';
 import { VERSION } from '../openf1/source.js';
 import { canUseMock, isCrew } from '../auth.js';
@@ -25,11 +27,30 @@ async function resolve(hub, key, user) {
     const m = await Mock.findById(id).lean();
     if (!m) throw Object.assign(new Error('this mock session has expired or never existed'), { status: 404 });
     if (!canUseMock(user, m)) throw otherCrew();
+    if (m.fork) {
+      if (!m.sim) throw Object.assign(new Error('this takeover never started'), { status: 410 });
+      return openFork(hub, m);
+    }
     return hub.replays.openMock({ id, key: m.key, startAt: m.startAt, t: m.t, team: m.team, crew: m.crew });
   }
   if (k === 'live') return hub.replays.open('live', { live: true });
   if (!/^\d+$/.test(k)) throw Object.assign(new Error('unknown session'), { status: 400 });
   return hub.replays.open(Number(k));
+}
+const openFork = (hub, doc, init) => hub.replays.openCustom(`m-${doc._id}`, (o) => new ForkChannel({ doc, ...o }), init);
+
+/** where each car is at `t` on a real session's channel (loading that stretch of car data if it isn't in memory) */
+async function carsAt(ch, t) {
+  const at = new Map();
+  const take = (byCar) => { for (const [n, arr] of byCar) { const f = ch.carAt(arr, t); if (f) at.set(n, { x: f.x, y: f.y }); } };
+  take(ch.cars);
+  if (at.size < Math.min(10, ch.meta.drivers.length / 2) && ch.source?.chunk) {
+    const c = await ch.source.chunk(ch.source.chunkIndex(t));
+    const byCar = new Map();
+    for (const f of c.frames) { let a = byCar.get(f.n); if (!a) byCar.set(f.n, (a = [])); a.push(f); }
+    take(byCar);
+  }
+  return at;
 }
 const fail = (res, e) => res.status(e.status || (e.message.includes('busy') ? 503 : 502)).json({ error: e.message });
 
@@ -166,6 +187,86 @@ export function mockRouter(hub) {
     } catch (e) { fail(res, e); }
   });
 
+  /**
+   * Takeover: fork a real race (live, a past session, or a mock) at a moment and
+   * run it on from there as a simulation the crew drives. `from` is the channel to
+   * fork; `lap` forks at the start of that lap, otherwise at the channel's clock.
+   */
+  r.post('/fork', createLimiter, async (req, res) => {
+    const p = z.object({
+      from: z.union([z.number().int().positive(), z.literal('live'), z.string().regex(/^m-[a-z0-9]{8,16}$/)]),
+      lap: z.number().int().min(1).max(100).optional(),
+      team
+    }).safeParse(req.body);
+    if (!p.success) return res.status(400).json({ error: 'from (a session key, "live" or a mock) required' });
+    try {
+      const base = typeof p.data.from === 'number' ? await hub.replays.open(p.data.from) : await resolve(hub, p.data.from, req.user);
+      if (base instanceof ForkChannel) return res.status(400).json({ error: 'that is already a takeover: start a new one from the real session' });
+      const meta = base.meta;
+      if (!/Race|Sprint/.test(meta.type || '')) return res.status(400).json({ error: 'a takeover needs a race or a sprint' });
+      if (!meta.track?.length || meta.track.length < 30) return res.status(400).json({ error: 'this session has no circuit outline yet: open it once, then try again' });
+      let t0 = base.t;
+      if (p.data.lap) {
+        const ls = base.events.find((e) => e.type === 'lapstart' && e.data.lap === p.data.lap);
+        if (!ls) return res.status(400).json({ error: `lap ${p.data.lap} hasn't started in this session` });
+        t0 = ls.t + 500;
+      }
+      const lap0 = Math.max(1, ...base.events.filter((e) => e.type === 'lapstart' && e.t <= t0).map((e) => e.data.lap));
+      if (lap0 < 1 || !base.events.some((e) => e.type === 'lapstart' && e.t <= t0)) return res.status(400).json({ error: 'the race has to have started: pick lap 1 or later' });
+      if (meta.totalLaps && lap0 >= meta.totalLaps) return res.status(400).json({ error: 'that is the last lap: fork earlier' });
+      const at = await carsAt(base, t0);
+      const id = randomBytes(8).toString('hex').slice(0, 12);
+      const crew = isCrew(req.user) ? req.user.team : null;
+      const teamName = crew || p.data.team || null;
+      const now = new Date();
+      const doc = {
+        _id: id, key: meta.key, name: `${meta.name} · takeover from lap ${lap0}`, team: teamName, crew, from: +meta.from, to: +meta.to, startAt: t0, t: t0, calls: [], createdAt: now, updatedAt: now,
+        fork: { t0, lap0, source: base.live ? 'live' : 'historical', seed: (Date.now() % 1e6) + 1 }
+      };
+      await Mock.create(doc);
+      const ch = await openFork(hub, doc, { base, at });
+      res.status(201).json({ id, ch: ch.ch(), snapshot: ch.snapshot() });
+    } catch (e) { fail(res, e); }
+  });
+
+  // a takeover's calls and race-control actions: they change the race
+  const commandLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'too many commands, slow down' } });
+  const CAR_CMDS = new Set(['box', 'cancel-box', 'mode', 'order', 'auto']);
+  r.post('/:id/command', commandLimiter, async (req, res) => {
+    const p = z.object({
+      type: z.enum(['box', 'cancel-box', 'mode', 'order', 'auto', 'sc', 'vsc', 'end-sc', 'red', 'resume', 'rain', 'dry', 'penalty', 'puncture', 'failure', 'random']),
+      n: z.number().int().min(1).max(99).optional(),
+      compound: z.enum(['S', 'M', 'H', 'I', 'W']).optional(),
+      lap: z.number().int().min(1).max(100).optional(),
+      mode: z.enum(Object.keys(MODES)).optional(),
+      order: z.enum(['swap', 'hold', 'race']).optional(),
+      on: z.boolean().optional(),
+      level: z.enum(['light', 'heavy']).optional(),
+      kind: z.enum(['time', 'drive-through']).optional(),
+      secs: z.number().int().refine((x) => [5, 10].includes(x)).optional()
+    }).safeParse(req.body);
+    if (!p.success || !MOCK_ID.test(req.params.id)) return res.status(400).json({ error: 'invalid command' });
+    const cmd = p.data;
+    try {
+      const ch = await resolve(hub, `m-${req.params.id}`, req.user);
+      if (!(ch instanceof ForkChannel)) return res.status(400).json({ error: 'commands are for takeovers: this is a replay of what really happened' });
+      if ((CAR_CMDS.has(cmd.type) || ['penalty', 'puncture', 'failure'].includes(cmd.type)) && cmd.n == null) return res.status(400).json({ error: 'which car? (n)' });
+      const car = cmd.n != null ? ch.sim.cars.find((c) => c.n === cmd.n) : null;
+      if (cmd.n != null && !car) return res.status(400).json({ error: 'that car is not in this race' });
+      // a crew runs its own cars; race control (flags, weather, stewards) is open to everyone on the takeover
+      if (CAR_CMDS.has(cmd.type) && ch.mock.team && !car.ours) return res.status(403).json({ error: `car ${cmd.n} isn't yours: you run ${ch.mock.team}` });
+      const before = ch.carNow(cmd.n);
+      if (!ch.command(cmd)) return res.status(409).json({ error: 'not possible right now', status: ch.sim.status() });
+      // the crew's strategy calls go in the call log for the debrief
+      if (cmd.type === 'box' || cmd.type === 'cancel-box') {
+        const by = req.user?.id ? req.user.name || req.user.username : undefined;
+        const call = { id: randomBytes(4).toString('hex'), t: ch.t, at: new Date(), n: cmd.n, kind: cmd.type === 'box' ? 'box' : 'stay', compound: cmd.compound, by, ...(before || {}) };
+        await Mock.updateOne({ _id: req.params.id, 'calls.299': { $exists: false } }, { $push: { calls: call }, updatedAt: new Date() });
+      }
+      res.json({ ok: true, status: ch.sim.status() });
+    } catch (e) { fail(res, e); }
+  });
+
   // a signed-in crew sees every mock its team has run; a guest browser keeps the ids of the mocks it started or was sent
   r.get('/', async (req, res, next) => {
     try {
@@ -174,7 +275,7 @@ export function mockRouter(hub) {
       if (ids.length) or.push({ _id: { $in: ids } });
       if (isCrew(req.user)) or.push({ crew: req.user.team });
       if (!or.length) return res.json({ mocks: [] });
-      const list = (await Mock.find({ $or: or }).sort({ updatedAt: -1 }).limit(60).lean()).filter((m) => canUseMock(req.user, m));
+      const list = (await Mock.find({ $or: or }, { sim: 0, 'fork.meta': 0 }).sort({ updatedAt: -1 }).limit(60).lean()).filter((m) => canUseMock(req.user, m));
       res.json({ mocks: list.map(({ calls, ...m }) => ({ ...m, id: m._id, calls: calls?.length || 0, open: !!hub.replays.get(`m-${m._id}`) })) });
     } catch (e) { next(e); }
   });
@@ -182,7 +283,7 @@ export function mockRouter(hub) {
   r.get('/:id', async (req, res, next) => {
     try {
       if (!MOCK_ID.test(req.params.id)) return res.status(400).json({ error: 'bad mock id' });
-      const m = await Mock.findById(req.params.id).lean();
+      const m = await Mock.findById(req.params.id, { sim: 0, 'fork.meta': 0 }).lean();
       if (!m) return res.status(404).json({ error: 'this mock session has expired or never existed' });
       if (!canUseMock(req.user, m)) return res.status(403).json({ error: otherCrew().message });
       const ch = hub.replays.get(`m-${m._id}`);

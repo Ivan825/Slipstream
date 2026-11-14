@@ -9,7 +9,7 @@ import { attachIngest } from './ingest/namespace.js';
 import { attachLive } from './live/namespace.js';
 import { Broadcaster } from './live/broadcaster.js';
 import { ensureDemoUsers } from './auth.js';
-import { Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayChunk, ReplayEvent, ReplaySession, Mock } from './models/index.js';
+import { Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayChunk, ReplayEvent, ReplaySession, Mock, ForkEvent } from './models/index.js';
 import { ReplayManager } from './openf1/replay.js';
 import { importSession } from './openf1/importer.js';
 
@@ -19,7 +19,7 @@ async function main() {
   }
   mongoose.set('strictQuery', true);
   await mongoose.connect(config.mongoUri, { maxPoolSize: 20 });
-  await Promise.all([Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayChunk, ReplayEvent, ReplaySession, Mock].map((m) => m.syncIndexes().catch((e) => log.warn(`index sync ${m.modelName}:`, e.message))));
+  await Promise.all([Telemetry, Lap, Alert, Session, Command, User, PitStop, ReplayChunk, ReplayEvent, ReplaySession, Mock, ForkEvent].map((m) => m.syncIndexes().catch((e) => log.warn(`index sync ${m.modelName}:`, e.message))));
   log.info('connected to MongoDB');
   // real-session car data used to be one document per sample; it is now packed per chunk
   await mongoose.connection.db.dropCollection('replayframes').then(() => log.info('dropped old replayframes collection')).catch(() => {});
@@ -56,7 +56,7 @@ async function main() {
     },
     viewers: roomSize,
     // a mock session's clock is saved so the crew can pick it up again later
-    saveMock: (ch) => Mock.updateOne({ _id: ch.mock.id }, { t: ch.t, updatedAt: new Date() }).catch(() => {}),
+    saveMock: (ch) => (ch.persist ? ch.persist() : Mock.updateOne({ _id: ch.mock.id }, { t: ch.t, updatedAt: new Date() }).catch(() => {})),
     cacheBytes: config.replayCacheMb * 1e6
   });
   if (config.replayAutoImport) {

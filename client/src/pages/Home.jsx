@@ -8,6 +8,7 @@ import { Mark } from '../components/Nav.jsx';
 import { TeamPicker } from '../components/TeamPicker.jsx';
 import { SessionGrid } from './Replay.jsx';
 import { startMock, myMockIds, forgetMock } from '../lib/crew.js';
+import { startTakeover } from '../lib/takeover.js';
 
 const until = (ms) => {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -83,6 +84,18 @@ export default function Home() {
       setBusy(false);
     }
   };
+  const takeover = async (from, atLap) => {
+    setBusy(true);
+    try {
+      const r = await startTakeover({ from, lap: atLap, team: team || undefined });
+      setSource({ kind: 'real', key: r.ch, name: r.snapshot.meta.name, mock: true });
+      toast({ kind: 'cyan', title: 'You have the pit wall', text: `Real race to lap ${r.snapshot.meta.fork.lap0}, simulated from there. Press play, then make your calls.`, ms: 6000 });
+      nav('/pitwall');
+    } catch (e) {
+      toast({ kind: '', title: 'Could not take over', text: e.message });
+      setBusy(false);
+    }
+  };
   const openSim = () => { setSource({ kind: 'sim' }); nav('/pitwall'); };
   const resume = (m, to = '/pitwall') => { setSource({ kind: 'real', key: `m-${m.id}`, name: m.name, mock: true }); nav(to); };
   const fromCalendar = async (key) => {
@@ -116,6 +129,7 @@ export default function Home() {
             {!running && next && <div><div className="lbl">Next session · {next.circuit}</div><b className="home-big">{next.country} · {next.name}</b><div className="mono mu">starts in {until(Date.parse(next.start) - now)}</div></div>}
             <p className="mu" style={{ margin: 0, fontSize: 12.5 }}>Timing, positions, tyres and car data a few seconds behind real time, with the strategist and team alerts on your cars. Recorded as it runs, so the session is ready to rehearse afterwards.</p>
             {running && live && <button className="btn red" onClick={() => nav('/real/live')}>Open the live pit wall</button>}
+            {running && live && /Race|Sprint/.test(running.name) && <button className="btn" disabled={busy} onClick={() => takeover('live')} title="Fork the live race now and run it yourself">Take over the live race</button>}
             {!live && <p className="mu" style={{ margin: 0, fontSize: 12 }}>The live feed needs an OpenF1 subscription key on the server (<span className="mono">OPENF1_TOKEN</span>). Past sessions need no key.</p>}
           </div>
         </div>
@@ -135,6 +149,8 @@ export default function Home() {
               </label>
               <button className="btn red" style={{ flex: 1 }} disabled={!chosen || busy} onClick={launch}>{busy ? 'Preparing…' : 'Start mock session'}</button>
             </div>
+            <button className="btn" disabled={!chosen || busy} onClick={() => takeover(chosen.key, Number(lap) || 1)} title="Real race up to that lap, then simulated: your calls change the result">{busy ? 'Preparing…' : `Take over from lap ${Number(lap) || 1}`}</button>
+            <span className="mu" style={{ fontSize: 12 }}><b>Mock</b> replays what really happened and scores your calls. <b>Takeover</b> runs the race on from that lap: box, tyres, modes and team orders change the result, and you can throw in safety cars, rain and penalties.</span>
             {!team && <span className="mu" style={{ fontSize: 12 }}>Tip: pick your team above so the strategist and alerts follow your cars.</span>}
             {isCrew(user) && <span className="mu" style={{ fontSize: 12 }}>Private to the {user.team} crew: only your team's accounts can open it.</span>}
           </div>

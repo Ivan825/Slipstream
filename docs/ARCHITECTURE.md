@@ -185,6 +185,10 @@ flowchart LR
   - The team watcher (alerts) and the debrief run in the browser on the same analysis data as the strategist, so they behave the same live, in a mock or in a replay.
   - Joining mid-session returns an exact snapshot: position, gaps, laps, sectors, tyres, flag and weather, rebuilt by re-applying events up to the clock.
 
+## Takeover: a real race run on by simulation
+
+A takeover forks a real session at a moment and continues it with a race model calibrated on that session (`server/src/fork/`). `ForkChannel` extends the replay channel, so the dashboards get the same room (`replay:m-<id>`) and the same messages: frames at 5 Hz, timing at 2 Hz, events as they happen. Only the source changes: a `ForkSim` stepped ten times per second of race time instead of OpenF1 chunks. Crew calls and race-control actions arrive over REST (validated, rate-limited, team-scoped) and take effect on the next step. Real events up to the fork and every generated event go to the `ForkEvent` collection in batches, with the sim's saved state, so a takeover can be reopened or survive a restart exactly where it was. The client loads that history once and merges the streamed events into it, deduplicated by car and lap. Details in [`TAKEOVER.md`](TAKEOVER.md).
+
 ## Data model
 
 ```mermaid

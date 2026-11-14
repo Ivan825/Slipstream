@@ -5,6 +5,9 @@ import { tyreStep, tyres } from '../lib/tyreModel.js';
 export const replayCars = new Map(); // n -> { x, y, px, py, t, pt, v, g, thr, brk, drs, rpm }
 export const replayTrace = new Map(); // n -> [{t, v, thr, brk, g, rpm, drs}] rolling ~120 s
 export const replayClock = { t: 0, at: 0, speed: 1, playing: true };
+const eventListeners = new Set();
+/** be told of every batch of timing events the channel sends (a takeover's analysis is built from them) */
+export function onReplayEvents(f) { eventListeners.add(f); return () => eventListeners.delete(f); }
 
 /*
  * Smooth playback. Frames arrive at ~5 Hz with network and server jitter, so
@@ -101,6 +104,7 @@ export const useReplay = create((set, get) => ({
   events(msg) {
     if (!get().mine(msg)) return;
     const evs = msg.events || [];
+    for (const f of eventListeners) f(evs, get().key);
     const rc = evs.filter((e) => e.type === 'rc');
     const feed = evs.filter((e) => e.type === 'pit' || (e.type === 'lap' && e.fastest));
     const radio = evs.filter((e) => e.type === 'radio').map((e) => ({ t: e.t, n: e.n, url: e.url, fresh: true }));

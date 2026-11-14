@@ -329,6 +329,21 @@ export class ReplayManager {
     return p;
   }
 
+  /** a private channel built elsewhere (a takeover): `create()` returns it, `init` opens it */
+  async openCustom(cid, create, init) {
+    if (this.channels.has(cid)) return this.channels.get(cid);
+    if (this.opening.has(cid)) return this.opening.get(cid);
+    this.makeRoom();
+    const ch = create({ emit: this.emit, viewers: this.viewers });
+    const p = ch.init(init).then(() => {
+      this.channels.set(cid, ch);
+      log.info(`takeover channel open: ${ch.meta.name} (${cid})`);
+      return ch;
+    }).finally(() => this.opening.delete(cid));
+    this.opening.set(cid, p);
+    return p;
+  }
+
   makeRoom() {
     if (this.distinct().length >= this.maxChannels) {
       this.reap(true);

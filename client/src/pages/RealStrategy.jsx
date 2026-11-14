@@ -11,6 +11,7 @@ import { teamDrivers, sameTeam } from '../lib/teams.js';
 import { useMock, useTeamFeed } from '../lib/crew.js';
 import { TeamPicker } from '../components/TeamPicker.jsx';
 import { EngineCards } from '../components/RaceDeck.jsx';
+import { CarCommand, RaceControlPanel, TakeoverButton } from '../components/TakeoverPanels.jsx';
 
 const lt = (s) => (s == null ? '—' : formatLapTime(s));
 const sec = (x, d = 1) => (x == null || !Number.isFinite(x) ? '—' : `${x.toFixed(d)} s`);
@@ -45,7 +46,8 @@ export default function RealStrategy() {
         <div><h1>Strategy</h1><p>{meta.name}. Pit loss, degradation and tyre life come from this session's own laps and stops, up to the {meta.mock ? 'mock' : 'session'} clock. Real timing has no tyre temperatures or fuel loads, so those are estimated.</p></div>
         <div className="row" style={{ gap: 8 }}>
           <TeamPicker meta={meta} />
-          <span className="tag" style={{ background: meta.mock ? 'var(--cyan)' : meta.live ? 'var(--red)' : '#fff', color: meta.live ? '#fff' : 'var(--bg)' }}>{meta.mock ? 'Mock session' : meta.live ? 'Live' : 'Replay'}</span>
+          {!meta.fork && <TakeoverButton />}
+          <span className="tag" style={{ background: meta.fork ? 'var(--org)' : meta.mock ? 'var(--cyan)' : meta.live ? 'var(--red)' : '#fff', color: meta.live || meta.fork ? '#fff' : 'var(--bg)' }}>{meta.fork ? 'Takeover' : meta.mock ? 'Mock session' : meta.live ? 'Live' : 'Replay'}</span>
         </div>
       </div>
 
@@ -85,6 +87,8 @@ export default function RealStrategy() {
           {focus.map((n) => <Strategist key={n} n={n} s={s} model={model} field={field} canLog={inMock} pick={!ours.length} onPick={setRealDriver} />)}
         </div>
       )}
+
+      {meta.fork && <div className="card"><div className="card-h"><b>Race control · takeover</b><span className="chip">flags, weather and stewards change the simulated race</span></div><div className="card-b"><RaceControlPanel selected={realDriver || focus[0]} /></div></div>}
 
       {isRace && <EngineCards />}
 
@@ -129,6 +133,7 @@ function Strategist({ n, s, field, canLog, pick, onPick }) {
   const user = useAuth((a) => a.user);
   const toast = useToasts((x) => x.push);
   const [busy, setBusy] = useState(false);
+  const fork = useReplay((r) => r.meta?.fork);
   if (!p || !sel) return null;
   const log = async (body) => {
     setBusy(true);
@@ -166,7 +171,8 @@ function Strategist({ n, s, field, canLog, pick, onPick }) {
         </div>
         {p.needStop && <div className="mu" style={{ fontSize: 12.5 }}>Still has to use a second dry compound before the flag. Suggested set: <Tyre c={p.fit} /></div>}
         <div className="mu" style={{ fontSize: 12.5 }}>Last lap {lt(sel.last)} · best {lt(sel.best)} · {sel.pits} stop{sel.pits === 1 ? '' : 's'} · gap {sel.g == null ? '—' : sel.pos === 1 ? 'leader' : `+${sel.g.toFixed(1)} s`}</div>
-        {canLog && (
+        {fork && <div style={{ borderTop: '1px solid var(--ln)', paddingTop: 12 }}><CarCommand n={n} /></div>}
+        {canLog && !fork && (
           <div className="row" style={{ gap: 6, borderTop: '1px solid var(--ln)', paddingTop: 12 }}>
             <span className="lbl" style={{ marginRight: 4 }}>Your call</span>
             {['S', 'M', 'H', 'I', 'W'].map((c) => (

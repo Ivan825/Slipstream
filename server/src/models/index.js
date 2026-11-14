@@ -149,8 +149,18 @@ export const ReplayEvent = model('ReplayEvent', ReplayEventSchema);
 const MockSchema = new Schema({
   // crew: the real team whose crew owns this mock (only its signed-in crew can open it); null for a guest mock, open to anyone with the link
   _id: String, key: Number, name: String, team: String, crew: String, from: Number, to: Number, startAt: Number, t: Number,
-  calls: [Schema.Types.Mixed], ended: Boolean, createdAt: Date, updatedAt: Date
+  calls: [Schema.Types.Mixed], ended: Boolean, createdAt: Date, updatedAt: Date,
+  // a takeover: the real session up to `fork.t0`, simulated from there (`sim` is the saved race, `result` the final order)
+  fork: Schema.Types.Mixed, sim: Schema.Types.Mixed, result: Schema.Types.Mixed
 }, { versionKey: false });
 MockSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 60 * 86400 });
 MockSchema.index({ crew: 1, updatedAt: -1 });
 export const Mock = model('Mock', MockSchema);
+
+/* ---------- takeover timing: the real events up to the fork, then every simulated one ----------
+ * Stored as the race runs (batched), so a takeover survives a restart and its
+ * history loads from MongoDB alongside the live stream. Kept as long as its mock. */
+const ForkEventSchema = new Schema({ f: String, t: Date, type: String, data: Schema.Types.Mixed, at: Date }, { versionKey: false });
+ForkEventSchema.index({ f: 1, t: 1 });
+ForkEventSchema.index({ at: 1 }, { expireAfterSeconds: 60 * 86400 });
+export const ForkEvent = model('ForkEvent', ForkEventSchema);

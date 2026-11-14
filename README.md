@@ -6,7 +6,7 @@
 </p>
 
 <p align="center"><strong>Race engineering software for the pit wall.</strong><br>
-Strategy, telemetry and alerts for a race team on real Formula 1 timing. Work the live session, rehearse any past race as a mock session with your own clock and a debrief, or drill a full weekend in the simulator, where twenty cars stream hundreds of channels twenty times a second and reach the right engineer within a few milliseconds.</p>
+Strategy, telemetry and alerts for a race team on real Formula 1 timing. Work the live session, rehearse any past race as a mock session with your own clock and a debrief, <strong>take over a real race at any lap (or the live one) and run it yourself</strong>, or drill a full weekend in the simulator, where twenty cars stream hundreds of channels twenty times a second and reach the right engineer within a few milliseconds.</p>
 
 <p align="center">
   <a href="https://github.com/Ivan825/Slipstream/actions/workflows/ci.yml"><img src="https://github.com/Ivan825/Slipstream/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -116,6 +116,8 @@ Every frame identifies its source, sequence number and timestamp:
 ```
 
 ## What you get
+
+**Takeover: run a real race yourself.** Fork any real race (a past one at any lap, the one you are watching, or the live race) and the server runs it on from there, calibrated on that session: each driver's pace, tyre degradation and life, pit loss, the circuit's speed profile and the weather. Rivals make the stops their teams really made until the race changes. Your calls change the result: box (now or at a lap) on any compound, engine and tyre modes, team orders, and race control (safety car, VSC, red flag, rain, penalties, punctures, failures, random incidents). The generated data streams through the same rooms and has the same shape as real timing, so every tool on the pit wall works on it, and the debrief sets your race against the real one. [How it works →](docs/TAKEOVER.md)
 
 **A live pit wall.** The circuit is drawn on canvas and coloured by speed, by sector or by **live track dominance**. It shows kerbs, corner numbers, DRS zones, a radar sweep when it rains, and glowing cars with trails, interpolated to 60 fps between 10 Hz updates. Beside the map are a timing tower that slides as positions change, sector colours, tyres and stops, the car card, a weather forecast and a team-radio feed of alerts.
 
@@ -253,6 +255,7 @@ The screenshots are real. They were captured from a running server on a laptop.
 Sign in as your team's crew (for example `mclaren` / `slipstream`), or pick a team on the launcher without signing in. Then:
 
 - **Live session:** the Formula 1 session running right now (needs an OpenF1 key on the server; otherwise it shows the next session and a countdown).
+- **Takeover:** choose a past race and a lap, then **Take over from lap N** (or **Take over the live race**, or **Take over from here** on any race you're watching). Press play, then use **Takeover · your pit wall** under the map: box, tyres, modes, team orders, and race control. Your calls change the race.
 - **Mock session:** choose a past race and a starting lap, then **Start mock session**. Use **Strategy and calls** to make your pit calls, **Share with crew** to send the link, and **Debrief** to see how your calls compare with what the team really did.
 - **Simulator:** a 20-car weekend with deep telemetry, alerts and the strategist.
 
@@ -294,7 +297,7 @@ A race starts on its own. **For a demo:**
 5. Start a qualifying session to watch the knockout, then a race, which takes its grid from qualifying.
 
 ```bash
-npm test                                            # sequencer, rate limiter, validation, keys, race timing, anomalies, strategy, weather, track model
+npm test                                            # sequencer, rate limiter, validation, keys, race timing, anomalies, strategy, weather, track model, takeover race model
 npm run loadtest -- --clients 200 --sources 50 --hz 50 --duration 30
 ```
 
@@ -337,6 +340,7 @@ Diagrams, the data model and every performance technique are in [`docs/ARCHITECT
 | | |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System and data-flow diagrams, the socket protocol, the history merge, the MongoDB schema, timing, performance and security |
+| [`docs/TAKEOVER.md`](docs/TAKEOVER.md) | Takeover: forking a real race and running it on, the race model and its calibration, storage, the merge with live updates, the API |
 | [`docs/STRATEGY.md`](docs/STRATEGY.md) | How the strategy engine models tyres, weather, pit loss and rivals, and the what-if API |
 | [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md) | The practice, qualifying, race and analysis views, mapped to what race engineers use, with a glossary |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Step-by-step deployment: MongoDB Atlas, Render (API and sockets), Vercel (dashboard) |
@@ -374,7 +378,7 @@ Working end to end on one machine and in Docker:
 
 ## Credits
 
-Built with [Express](https://expressjs.com/), [Socket.IO](https://socket.io/), [Mongoose](https://mongoosejs.com/), [zod](https://zod.dev/), [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken), [bcryptjs](https://github.com/dcodeIO/bcrypt.js), [helmet](https://helmetjs.github.io/), [express-rate-limit](https://github.com/express-rate-limit/express-rate-limit), [cors](https://github.com/expressjs/cors), [compression](https://github.com/expressjs/compression), [React](https://react.dev/), [React Router](https://reactrouter.com/), [Vite](https://vitejs.dev/), [Zustand](https://github.com/pmndrs/zustand), [Framer Motion](https://www.framer.com/motion/) and [uPlot](https://github.com/leeoniya/uPlot), all MIT licensed. Real session data comes from [OpenF1](https://openf1.org), an unofficial open API (free historical data, for non-commercial use). Slipstream isn't associated with Formula 1 companies, and F1, FORMULA 1 and related marks belong to their owners. Fonts are [Titillium Web](https://fonts.google.com/specimen/Titillium+Web) and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) (SIL Open Font License).
+Built with [Express](https://expressjs.com/), [Socket.IO](https://socket.io/), [Mongoose](https://mongoosejs.com/), [zod](https://zod.dev/), [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken), [bcryptjs](https://github.com/dcodeIO/bcrypt.js), [helmet](https://helmetjs.github.io/), [express-rate-limit](https://github.com/express-rate-limit/express-rate-limit), [cors](https://github.com/expressjs/cors), [compression](https://github.com/expressjs/compression), [React](https://react.dev/), [React Router](https://reactrouter.com/), [Vite](https://vitejs.dev/), [Zustand](https://github.com/pmndrs/zustand), [Framer Motion](https://www.framer.com/motion/) and [uPlot](https://github.com/leeoniya/uPlot), all MIT licensed. Real session data comes from [OpenF1](https://openf1.org), an unofficial open API (free historical data, for non-commercial use). Team-radio clips are Formula 1's own recordings, linked (not copied) from the URLs OpenF1 publishes. Engineer voice calls use the browser's built-in speech synthesis. Slipstream isn't associated with Formula 1 companies, and F1, FORMULA 1 and related marks belong to their owners. Fonts are [Titillium Web](https://fonts.google.com/specimen/Titillium+Web) and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) (SIL Open Font License).
 
 The circuit is a Catmull–Rom spline. Anomaly baselines use exponentially weighted moving averages. Rate limiting is a token bucket. The analysis views follow the conventions of professional motorsport data systems and official timing documents, as described in [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md). In the simulated weekend, team, driver and circuit names are fictional. The F1 session views show real, recorded session data from OpenF1.
 

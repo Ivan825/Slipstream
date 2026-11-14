@@ -57,6 +57,7 @@ export default function Debrief() {
 
   if (error) return <div className="card"><div className="empty"><b>No debrief</b>{error}<Link to="/" className="btn sm" style={{ marginTop: 8 }}>Back to the launcher</Link></div></div>;
   if (!meta?.mock) return <div className="card"><div className="empty"><b>Debriefs are for mock sessions</b>Start a mock from the launcher: pick a past race, run it on your own clock, make your calls, then come back here.<Link to="/" className="btn sm red" style={{ marginTop: 8 }}>Open the launcher</Link></div></div>;
+  if (meta.fork) return <TakeoverDebrief meta={meta} data={data} doc={doc} team={team} />;
   if (!doc || !data || !rep) return <div className="shimmer" style={{ height: 300 }} />;
   const drivers = new Map((meta.drivers || []).map((d) => [d.n, d]));
   const ours = teamDrivers(meta, team);
@@ -130,6 +131,82 @@ export default function Debrief() {
             </table></div>}
         <div className="merge-note"><span>matched = the real team stopped within a lap of your box call, or stayed out at least two laps after your stay-out call · finishing positions from the official timing</span></div>
       </div>
+    </div>
+  );
+}
+
+/** the last classified position of each car, from a session's laps (the position at each lap's line) */
+function finishOrder(data) {
+  const last = new Map();
+  for (const l of data?.laps || []) if (l.pos != null && (!last.get(l.n) || l.lap >= last.get(l.n).lap)) last.set(l.n, l);
+  return last;
+}
+
+/** compound sequence of a car, e.g. M → H → S */
+const seq = (stints, n) => stints.filter((x) => x.n === n).sort((a, b) => a.from - b.from).map((x) => COMP[x.compound] || '?');
+
+/**
+ * After a takeover: the race you ran against the race that really happened, car
+ * by car (finish, stops, tyres), with your calls on the timeline.
+ */
+function TakeoverDebrief({ meta, data, doc, team }) {
+  const real = useRealAnalysis(meta.fork.realKey);
+  const rows = useReplay((s) => s.rows);
+  const state = useReplay((s) => s.state);
+  if (!data || !real) return <div className="shimmer" style={{ height: 300 }} />;
+  const drivers = new Map((meta.drivers || []).map((d) => [d.n, d]));
+  const ours = new Set(teamDrivers(meta, team).map((d) => d.n));
+  const realFin = finishOrder(real);
+  const done = !!state.fork?.ended;
+  const yours = new Map(rows.map((r) => [r.n, r.pos]));
+  const total = meta.totalLaps || Math.max(...real.laps.map((l) => l.lap));
+  const list = meta.drivers.map((d) => {
+    const rf = realFin.get(d.n), yf = yours.get(d.n);
+    return { d, real: rf?.lap >= total - 1 ? rf.pos : null, realLap: rf?.lap, yours: yf < 99 ? yf : null, realStops: real.pits.filter((p) => p.n === d.n).length, yourStops: data.pits.filter((p) => p.n === d.n).length, realTyres: seq(real.stints, d.n), yourTyres: seq(data.stints, d.n), mine: ours.has(d.n) };
+  }).sort((a, b) => (a.yours ?? 99) - (b.yours ?? 99));
+  const mine = list.filter((r) => r.mine);
+  const gained = mine.reduce((a, r) => a + (r.real && r.yours ? r.real - r.yours : 0), 0);
+  const calls = doc?.calls || [];
+  return (
+    <div className="stack">
+      <div className="page-title">
+        <div><h1>Debrief · takeover</h1><p>{meta.name}. The real race to lap {meta.fork.lap0}, then yours. {done ? 'Final classification' : 'Positions now (the race is still running)'} against how it really finished.</p></div>
+        <div className="row" style={{ gap: 8 }}><Link to="/pitwall" className="btn sm ghost">Back to the pit wall</Link></div>
+      </div>
+      <div className="four">
+        <div className="card"><div className="card-b"><div className="lbl">Your cars</div><b style={{ fontSize: 18 }}>{mine.map((r) => `${r.d.code} P${r.yours ?? '—'}`).join(' · ') || 'no team picked'}</b><div className="mu" style={{ fontSize: 12 }}>really: {mine.map((r) => `${r.d.code} ${r.real ? 'P' + r.real : 'DNF'}`).join(' · ')}</div></div></div>
+        <div className="card"><div className="card-b"><div className="lbl">Places against reality</div><b className="big mono" style={{ color: gained > 0 ? '#2bd94e' : gained < 0 ? 'var(--red)' : undefined }}>{gained > 0 ? '+' : ''}{gained}</b><div className="mu" style={{ fontSize: 12 }}>summed over your cars</div></div></div>
+        <div className="card"><div className="card-b"><div className="lbl">Calls made</div><b className="big mono">{calls.length}</b><div className="mu" style={{ fontSize: 12 }}>box and stay-out calls</div></div></div>
+        <div className="card"><div className="card-b"><div className="lbl">Race</div><b className="big mono">{done ? 'FINISHED' : `L${rows[0]?.lap ?? '—'}`}</b><div className="mu" style={{ fontSize: 12 }}>of {total} laps · forked at lap {meta.fork.lap0}</div></div></div>
+      </div>
+      <div className="card">
+        <div className="card-h"><b>Your race against the real one</b><span className="chip">every car</span></div>
+        <div className="scroll"><table className="tbl">
+          <thead><tr><th>Car</th><th className="n">Yours</th><th className="n">Real</th><th className="n">Δ</th><th>Your tyres</th><th>Real tyres</th><th className="n">Stops yours · real</th></tr></thead>
+          <tbody>
+            {list.map((r) => { const delta = r.real && r.yours ? r.real - r.yours : null; return (
+              <tr key={r.d.n} style={{ background: r.mine ? 'rgba(56,216,255,.08)' : undefined }}>
+                <td><span className="drv"><i style={{ background: r.d.color }} />{r.d.code}<span className="mu" style={{ fontWeight: 400 }}>{r.d.team}</span></span></td>
+                <td className="n"><b>{r.yours ? `P${r.yours}` : 'out'}</b></td>
+                <td className="n">{r.real ? `P${r.real}` : 'DNF'}</td>
+                <td className="n" style={{ color: delta > 0 ? '#2bd94e' : delta < 0 ? 'var(--red)' : undefined, fontWeight: 700 }}>{delta == null ? '—' : delta > 0 ? `+${delta}` : delta}</td>
+                <td><span className="row" style={{ gap: 3 }}>{r.yourTyres.map((c, i) => <Tyre key={i} c={c} />)}</span></td>
+                <td><span className="row" style={{ gap: 3 }}>{r.realTyres.map((c, i) => <Tyre key={i} c={c} />)}</span></td>
+                <td className="n">{r.yourStops} · {r.realStops}</td>
+              </tr>
+            ); })}
+          </tbody>
+        </table></div>
+        <div className="merge-note"><span>Δ: places gained against the real finish (green) or lost (red). Rivals follow the stops their teams really made until the race changes (a safety car, rain), then a strategy model takes over.</span></div>
+      </div>
+      {calls.length > 0 && (
+        <div className="card">
+          <div className="card-h"><b>Your calls</b></div>
+          <ul className="feed">{calls.slice().reverse().map((c) => { const d = drivers.get(c.n); return (
+            <li key={c.id}><i style={{ background: d?.color || '#888' }} /><div><div className="t"><span>{d?.code} · lap {c.lap} · P{c.pos} · {c.kind === 'box' ? `BOX ${c.compound || ''}` : 'STAY OUT'}</span><span>{c.by || ''}</span></div></div></li>
+          ); })}</ul>
+        </div>
+      )}
     </div>
   );
 }

@@ -447,3 +447,14 @@ input[type=range] { width: 100%; accent-color: var(--red); }
 .mc-h { display: inline-flex; align-items: flex-end; gap: 1px; height: 18px; }
 .mc-h i { display: block; width: 5px; background: var(--cyan); min-height: 1px; }
 @media (max-width: 760px) { .tg-top, .tg-modes, .wx-grid { grid-template-columns: 1fr 1fr; } }
+
+/* ---------- takeover: the crew's own pit wall on a forked race ---------- */
+.tk-deck { border-top: 3px solid var(--org); }
+.tk-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .tk-grid { grid-template-columns: 1fr; } }
+.tk-car { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--ln); border-left: 3px solid var(--tc, var(--org)); border-radius: 8px; background: rgba(255, 255, 255, .02); }
+.tk-rc { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border: 1px solid var(--ln); border-radius: 8px; background: rgba(255, 138, 28, .04); }
+.tk-hot { color: var(--org) !important; border-color: var(--org) !important; font-weight: 800; }
+.tk-tyre { padding: 0 6px; min-width: 34px; }
+.tk-sc { border-color: var(--org); color: var(--org); }
+.tk-car .seg button:disabled, .tk-rc button:disabled { opacity: .45; }
