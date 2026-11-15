@@ -67,7 +67,7 @@ Save. Render redeploys in about a minute. That's it: open the Vercel URL: guests
 ## Notes
 
 - **Render free instances sleep after 15 minutes without traffic**, and the first request after that takes about 50 s. For a demo, open the site a minute early, or point a free uptime monitor (for example UptimeRobot) at `/api/health` every 10 minutes.
-- **Storage.** Raw telemetry expires after 10 minutes on this blueprint (`TELEMETRY_TTL_MIN`). Only the last 10 simulator sessions are kept (`SIM_KEEP_SESSIONS`, about 9 MB a race) and real-session chunks are capped at 200 MB (`REPLAY_CACHE_MB`), which keeps a 512 MB M0 cluster comfortably under its limit.
+- **Storage.** Raw telemetry expires after 10 minutes on this blueprint (`TELEMETRY_TTL_MIN`). Only the last 10 simulator sessions are kept (`SIM_KEEP_SESSIONS`, about 9 MB a race) and real-session chunks are capped at 150 MB on this blueprint (`REPLAY_CACHE_MB`), which keeps a 512 MB M0 cluster comfortably under its limit.
 - **Live feed.** To follow sessions in real time, add `OPENF1_TOKEN` (or `OPENF1_USERNAME` and `OPENF1_PASSWORD`) on Render.
 - **One-service alternative.** Skip Vercel and use the Render URL directly: it serves the same dashboard (`SERVE_CLIENT=true`).
 - **Docker.** `docker compose up --build` runs MongoDB and Slipstream locally on port 4000.

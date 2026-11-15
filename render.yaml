@@ -58,3 +58,8 @@ services:
         value: "6"
       - key: TELEMETRY_TTL_MIN
         value: "10"
+      # free-tier budget: ~110 MB live telemetry + ~75 MB for the last 10 simulator sessions + 150 MB of real sessions
+      - key: SIM_KEEP_SESSIONS
+        value: "10"
+      - key: REPLAY_CACHE_MB
+        value: "150"
