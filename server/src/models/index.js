@@ -49,7 +49,7 @@ TelemetrySchema.index({ sessionId: 1, carId: 1, ts: 1 });
 TelemetrySchema.index({ ts: 1 }, { expireAfterSeconds: config.telemetryTtlMin * 60 });
 export const Telemetry = model('Telemetry', TelemetrySchema);
 
-/* ---------- laps (cold store, kept forever, with a 25 m downsampled trace) ---------- */
+/* ---------- laps (cold store with a 25 m downsampled trace; the last SIM_KEEP_SESSIONS sessions are kept) ---------- */
 const LapSchema = new Schema({
   sessionId: { type: String, required: true },
   carId: { type: String, required: true },

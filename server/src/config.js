@@ -26,6 +26,8 @@ export const config = {
   replayCacheMb: num(process.env.REPLAY_CACHE_MB, 200),
   raceLaps: num(process.env.RACE_LAPS, 36),
   telemetryTtlMin: num(process.env.TELEMETRY_TTL_MIN, 30),
+  // simulator sessions kept (laps with traces, alerts, commands, pit stops); a race is about 9 MB. 0 keeps all
+  simKeepSessions: num(process.env.SIM_KEEP_SESSIONS, 10),
 
   // real-time pipeline tuning
   broadcastHz: num(process.env.BROADCAST_HZ, 10),

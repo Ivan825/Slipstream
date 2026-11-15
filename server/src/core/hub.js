@@ -214,7 +214,25 @@ export class Hub extends EventEmitter {
     this.emit('sim:command', { type: 'reset', mode: type, grid });
     this.broadcastSession({ event: 'start' });
     this.session.fresh = false;
+    this.pruneHistory().catch((e) => log.warn('session history prune:', e.message));
     return this.session;
+  }
+
+  /**
+   * The simulator runs around the clock and every race stores ~9 MB (720 laps with
+   * their traces), so only the most recent `simKeepSessions` sessions are kept.
+   * Older ones are dropped with everything recorded under them.
+   */
+  async pruneHistory(keep = config.simKeepSessions) {
+    if (!(keep > 0)) return [];
+    const old = await Session.find({}, { sessionId: 1 }).sort({ startedAt: -1 }).skip(keep).lean();
+    const ids = old.map((s) => s.sessionId).filter((id) => id !== this.session.sessionId);
+    if (!ids.length) return [];
+    const q = { sessionId: { $in: ids } };
+    await Promise.all([Lap, Alert, Command, PitStop, Telemetry].map((M) => M.deleteMany(q)));
+    await Session.deleteMany(q);
+    log.info(`session history: dropped ${ids.length} old sessions`);
+    return ids;
   }
 
   /** practice/qualifying clock: chequered flag, then end of segment once every car is back in */
