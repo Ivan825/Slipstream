@@ -26,6 +26,10 @@ export const config = {
   replayCacheMb: num(process.env.REPLAY_CACHE_MB, 200),
   raceLaps: num(process.env.RACE_LAPS, 36),
   telemetryTtlMin: num(process.env.TELEMETRY_TTL_MIN, 30),
+  // store one raw frame in N per car (the live view and the in-memory hot cache still get every frame)
+  telemetryPersistEvery: num(process.env.TELEMETRY_PERSIST_EVERY, 1),
+  // with nobody connected for this many minutes: stop storing raw telemetry and let the host sleep (0 = never idle)
+  idleAfterMin: num(process.env.IDLE_AFTER_MIN, 0),
   // simulator sessions kept (laps with traces, alerts, commands, pit stops); a race is about 9 MB. 0 keeps all
   simKeepSessions: num(process.env.SIM_KEEP_SESSIONS, 10),
 

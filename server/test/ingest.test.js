@@ -69,3 +69,23 @@ test('api keys bind a connection to exactly one source', () => {
   assert.equal(verifyApiKey(key.replace('KAL', 'VOS'), 'secret'), null);
   assert.equal(verifyApiKey('garbage', 'secret'), null);
 });
+
+import { PersistGate } from '../src/core/persistGate.js';
+
+test('persist gate keeps one frame in N per source', () => {
+  const g = new PersistGate({ every: 3, now: 0 });
+  const kept = (src) => [1, 2, 3, 4, 5, 6, 7].filter(() => g.keep(src, 0)).length;
+  assert.equal(kept('KAL'), 3);   // frames 1, 4, 7
+  assert.equal(kept('VOR'), 3);   // counted per source
+  assert.equal(new PersistGate({ every: 1 }).keep('KAL'), true);
+});
+
+test('persist gate stores nothing once nobody has watched for the idle window', () => {
+  const g = new PersistGate({ every: 1, idleAfterMs: 1000, now: 0 });
+  assert.equal(g.keep('KAL', 500), true);
+  assert.equal(g.idle(1500), true);
+  assert.equal(g.keep('KAL', 1500), false);
+  g.seen(1600);
+  assert.equal(g.keep('KAL', 1700), true);
+  assert.equal(new PersistGate({ idleAfterMs: 0, now: 0 }).idle(1e12), false); // 0 = never idle
+});

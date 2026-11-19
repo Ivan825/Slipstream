@@ -58,6 +58,13 @@ services:
         value: "6"
       - key: TELEMETRY_TTL_MIN
         value: "10"
+      # Render's free plan includes only 5 GB of outbound bandwidth a month, and writing every raw frame to Atlas
+      # used ~300 MB an hour (it suspended the workspace in Nov 2026). Store 1 frame in 10 per car (the live view
+      # still gets every frame), and with nobody connected for 15 min stop storing and stop the keep-awake ping so it sleeps
+      - key: TELEMETRY_PERSIST_EVERY
+        value: "10"
+      - key: IDLE_AFTER_MIN
+        value: "15"
       # free-tier budget: ~110 MB live telemetry + ~75 MB for the last 10 simulator sessions + 150 MB of real sessions
       - key: SIM_KEEP_SESSIONS
         value: "10"

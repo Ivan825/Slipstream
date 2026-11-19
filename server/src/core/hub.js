@@ -5,6 +5,7 @@ import { log } from '../lib/log.js';
 import { Telemetry, Lap, Alert, Session, Command, PitStop } from '../models/index.js';
 import { Metrics } from './metrics.js';
 import { BatchWriter } from './batchWriter.js';
+import { PersistGate } from './persistGate.js';
 import { RaceState } from './raceState.js';
 import { AnomalyEngine } from './anomaly.js';
 import { StrategyEngine } from './strategy.js';
@@ -34,6 +35,7 @@ export class Hub extends EventEmitter {
       collection: Telemetry.collection, metrics: this.metrics,
       batchMs: config.batchMs, batchMax: config.batchMax, bufferMax: config.writeBufferMax
     });
+    this.persist = new PersistGate({ every: config.telemetryPersistEvery, idleAfterMs: config.idleAfterMin * 60_000 });
     this.weather = new Weather({ random: config.randomWeather });
     this.session = {
       sessionId: null, type: 'race', name: '', status: 'idle', trackStatus: 'GREEN', totalLaps: config.raceLaps,
@@ -117,7 +119,8 @@ export class Hub extends EventEmitter {
       f.receivedAt = now;
       const doc = { ...f, sessionId: raceCar ? sessionId : 'stress', ts: new Date(f.ts) };
       delete doc.receivedAt;
-      this.writer.push(doc);
+      if (this.persist.keep(sourceId, now)) this.writer.push(doc);
+      else this.metrics.inc('dbSkipped');
     }
     this.metrics.c.reordered = this.sequencer.counters.reordered;
     this.metrics.c.gaps = this.sequencer.counters.gaps;

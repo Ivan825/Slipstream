@@ -20,7 +20,7 @@ export class Metrics {
   constructor() {
     this.c = {
       received: 0, accepted: 0, rejected: 0, limited: 0, duplicates: 0, late: 0, reordered: 0, gaps: 0,
-      dbWritten: 0, dbDupKeys: 0, dbDropped: 0, dbBatches: 0, dbErrors: 0,
+      dbWritten: 0, dbDupKeys: 0, dbDropped: 0, dbSkipped: 0, dbBatches: 0, dbErrors: 0,
       bcMessages: 0, bcBytes: 0, bcDropped: 0, alerts: 0, strategyRuns: 0
     };
     this.g = { dbBuffer: 0, dbLastBatchMs: 0, dbLastBatchSize: 0, clients: 0, slowClients: 0, sources: 0, roles: {} };

@@ -66,11 +66,15 @@ async function main() {
 
   server.listen(config.port, () => log.info(`Slipstream server on http://localhost:${config.port}`));
 
-  // free hosting tiers sleep without inbound traffic; ping our own public URL so live sessions keep running
+  // anyone connected to the live namespace counts as watching; with nobody watching the hub stops storing raw telemetry
+  setInterval(() => { if (liveNsp.sockets.size) hub.persist.seen(); }, 15_000).unref();
+
+  // free hosting tiers sleep without inbound traffic; ping our own public URL so live sessions keep running,
+  // but only while someone is watching, so an unwatched server can sleep instead of streaming to the database all day
   if (config.keepAwakeUrl) {
     const url = config.keepAwakeUrl.replace(/\/$/, '') + '/api/health';
-    setInterval(() => fetch(url).catch(() => {}), 10 * 60_000).unref();
-    log.info(`keep-awake ping every 10 min: ${url}`);
+    setInterval(() => { if (!hub.persist.idle()) fetch(url).catch(() => {}); }, 10 * 60_000).unref();
+    log.info(`keep-awake ping every 10 min while watched: ${url}`);
   }
 
   let sim = null;
