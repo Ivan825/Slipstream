@@ -72,3 +72,18 @@ Save. Render redeploys in about a minute. That's it: open the Vercel URL: guests
 - **Live feed.** To follow sessions in real time, add `OPENF1_TOKEN` (or `OPENF1_USERNAME` and `OPENF1_PASSWORD`) on Render.
 - **One-service alternative.** Skip Vercel and use the Render URL directly: it serves the same dashboard (`SERVE_CLIENT=true`).
 - **Docker.** `docker compose up --build` runs MongoDB and Slipstream locally on port 4000.
+
+## Railway
+
+The live demo runs on Railway, after Render's free workspace was suspended for going over its 5 GB monthly bandwidth.
+
+1. **New Project → Deploy from GitHub repo**, pick `Slipstream`. Railway builds the root [`Dockerfile`](../Dockerfile).
+2. **Add → Database → MongoDB** in the same project.
+3. On the Slipstream service, set the variables from [`render.yaml`](../render.yaml), with:
+   - `MONGO_URI` = `${{MongoDB.MONGO_URL}}/slipstream?authSource=admin` (a reference, so no password is copied by hand);
+   - `JWT_SECRET`, `INGEST_SECRET`: long random strings;
+   - `CLIENT_ORIGIN` = your Vercel URL and the Railway URL, comma separated.
+4. **Settings → Networking → Generate Domain**, then check `https://<service>.up.railway.app/api/health` returns `ok: true, db: true`.
+5. On Vercel, set `VITE_API_URL` to the Railway URL as a **Config** variable (`VITE_` values end up in the browser bundle, so Vercel refuses them as secrets) and redeploy.
+
+Railway's trial gives $5 of credit or 30 days, whichever runs out first; the low-traffic settings from `render.yaml` (`SIM_HZ=10`, `TELEMETRY_PERSIST_EVERY=10`, `IDLE_AFTER_MIN=15`) keep usage down.

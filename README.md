@@ -250,7 +250,7 @@ The screenshots are real. They were captured from a running server on a laptop.
 
 ## Try it
 
-**Live:** https://slipstream-flax.vercel.app (dashboard on Vercel, API and sockets on Render). The same app is also served whole from Render at https://slipstream-p92j.onrender.com. Both run on free plans.
+**Live:** https://slipstream-flax.vercel.app (dashboard on Vercel, API, sockets and MongoDB on Railway). The same app is also served whole from Railway at https://slipstream-production-655e3276.up.railway.app.
 
 Sign in as your team's crew (for example `mclaren` / `slipstream`), or pick a team on the launcher without signing in. Then:
 
@@ -306,6 +306,7 @@ npm run loadtest -- --clients 200 --sources 50 --hz 50 --duration 30
 | How | Notes |
 |---|---|
 | **Docker** | `docker compose up --build` starts MongoDB and Slipstream (API, sockets, simulator and dashboard) on port 4000 |
+| **Railway** | One project with two services: Slipstream (built from the [`Dockerfile`](Dockerfile)) and Railway's MongoDB, with `MONGO_URI=${{MongoDB.MONGO_URL}}/slipstream?authSource=admin` and the other settings from [`render.yaml`](render.yaml). Notes in [`docs/DEPLOY.md`](docs/DEPLOY.md#railway) |
 | **Render + Vercel** | API and sockets on Render ([`render.yaml`](render.yaml)), dashboard on Vercel ([`client/vercel.json`](client/vercel.json)), database on MongoDB Atlas. Step by step in [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | **Any VM or PaaS** | `npm ci && npm run build`, then `SERVE_CLIENT=true EMBED_SIMULATOR=true npm start` |
 | **Split** | Dashboard on Vercel ([`client/vercel.json`](client/vercel.json), with `VITE_API_URL` set to the API), server elsewhere |
@@ -343,7 +344,7 @@ Diagrams, the data model and every performance technique are in [`docs/ARCHITECT
 | [`docs/TAKEOVER.md`](docs/TAKEOVER.md) | Takeover: forking a real race and running it on, the race model and its calibration, storage, the merge with live updates, the API |
 | [`docs/STRATEGY.md`](docs/STRATEGY.md) | How the strategy engine models tyres, weather, pit loss and rivals, and the what-if API |
 | [`docs/RACE_ENGINEERING.md`](docs/RACE_ENGINEERING.md) | The practice, qualifying, race and analysis views, mapped to what race engineers use, with a glossary |
-| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Step-by-step deployment: MongoDB Atlas, Render (API and sockets), Vercel (dashboard) |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Step-by-step deployment: MongoDB Atlas, Render or Railway (API and sockets), Vercel (dashboard) |
 | [`docs/STRESS_TEST.md`](docs/STRESS_TEST.md) | Load-test method and results |
 | [`.env.example`](.env.example) | Every setting |
 
